@@ -1,5 +1,6 @@
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import collections
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import logging
 import os
@@ -346,68 +347,84 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         # canvases near-fill VRAM on large sections (RPC3 601 measured ~22 GB).
         use_cp = nornir_imageregistration.GetActiveComputationLib() == nornir_imageregistration.ComputationLib.cupy
         strip_workers = 1 if use_cp else 2
+
+        # Strip regions are cheap metadata; the assembled strips are not (RC2 1240: ~1.5 GB each, 60 strips).
+        # Submit lazily so at most strip_workers strips are assembling while one is being sliced, and consume them in
+        # order. Submitting every strip up front kept every finished strip alive in its Future until the generator
+        # ended, and an early exit (an exception or a closed generator) then waited for the whole section to assemble.
+        strips = []
+        iColumn = 0
+        while iColumn < grid_dims[1]:
+            origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
+
+            working_image_shape = template_image_shape.copy() \
+                if hasattr(template_image_shape, 'copy') else np.asarray(template_image_shape).copy()
+            working_image_grid_dims = template_image_grid_dims.copy() \
+                if hasattr(template_image_grid_dims, 'copy') else np.asarray(template_image_grid_dims).copy()
+            # If we are on the final column don't make it larger than necessary
+            if working_image_grid_dims[1] + iColumn > grid_dims[1]:
+                working_image_grid_dims[1] = grid_dims[1] - iColumn
+                working_image_shape[1] = working_image_grid_dims[1] * scaled_tile_dims[1]
+                assert (working_image_shape[1] > 0)
+
+            fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)  # type: ignore[arg-type]
+
+            if len(self.TargetSpaceIntersections(fixed_region)) == 0:
+                skipped_empty_strips += 1
+                skipped_empty_cells += int(np.prod(working_image_grid_dims))
+            else:
+                strips.append((iColumn, working_image_grid_dims, fixed_region))
+
+            iColumn += working_image_grid_dims[1]
+
+        pending: collections.deque = collections.deque()
+        next_strip = 0
         with nornir_pools.InstrumentedThreadPoolExecutor('mosaic-strips', max_workers=strip_workers) as executor:
-            iColumn = 0
-            assemble_tasks = []
-            while iColumn < grid_dims[1]:
-                # Assemble a strip of images, divide them up and save
-                origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
+            def fill_window() -> None:
+                """Submit strips until strip_workers are pending."""
+                nonlocal next_strip
+                while next_strip < len(strips) and len(pending) < strip_workers:
+                    column, strip_grid_dims, region = strips[next_strip]
+                    pending.append((executor.submit(self.AssembleImage, FixedRegion=region,
+                                                    target_space_scale=target_space_scale),
+                                    column, strip_grid_dims))
+                    next_strip += 1
 
-                working_image_shape = template_image_shape.copy() \
-                    if hasattr(template_image_shape, 'copy') else np.asarray(template_image_shape).copy()
-                working_image_grid_dims = template_image_grid_dims.copy() \
-                    if hasattr(template_image_grid_dims, 'copy') else np.asarray(template_image_grid_dims).copy()
-                # If we are on the final column don't make it larger than necessary
-                if working_image_grid_dims[1] + iColumn > grid_dims[1]:
-                    working_image_grid_dims[1] = grid_dims[1] - iColumn
-                    working_image_shape[1] = working_image_grid_dims[1] * scaled_tile_dims[1]
-                    assert (working_image_shape[1] > 0)
+            try:
+                while next_strip < len(strips) or pending:
+                    fill_window()
 
-                fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)  # type: ignore[arg-type]
+                    task, iColumn, working_image_grid_dims = pending.popleft()
+                    working_image, working_mask = task.result()
+                    del task
+                    expected_cells_in_strip = int(np.prod(working_image_grid_dims))
 
-                if len(self.TargetSpaceIntersections(fixed_region)) == 0:
-                    skipped_empty_strips += 1
-                    skipped_empty_cells += int(np.prod(working_image_grid_dims))
-                    iColumn += working_image_grid_dims[1]
-                    continue
+                    fill_window()  # keep the next strips assembling while this one is sliced and saved
 
-                assemble_column_task = executor.submit(self.AssembleImage,
-                                                       FixedRegion=fixed_region,
-                                                       target_space_scale=target_space_scale)
-                assemble_column_task.iColumn = iColumn  # type: ignore[attr-defined]
-                assemble_column_task.working_image_grid_dims = working_image_grid_dims  # type: ignore[attr-defined]
-                assemble_column_task.expected_cells_in_strip = int(np.prod(working_image_grid_dims))  # type: ignore[attr-defined]
-                assemble_tasks.append(assemble_column_task)
+                    task_timer.Start(
+                        f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
 
-                iColumn += working_image_grid_dims[1]
+                    strip_yielded = 0
+                    for tile_entry in nornir_imageregistration.ImageToTilesGenerator(
+                            source_image=working_image,
+                            tile_size=tile_dims,
+                            grid_shape=working_image_grid_dims,
+                            coord_offset=(0, iColumn),
+                            coverage_mask=working_mask):
+                        strip_yielded += 1
+                        yielded_tiles += 1
+                        yield tile_entry
 
-            # As each task completes, yield results via the generator
-            for task in as_completed(assemble_tasks):
-                working_image, working_mask = task.result()
-
-                working_image_grid_dims = task.working_image_grid_dims  # type: ignore[attr-defined]
-                iColumn = task.iColumn  # type: ignore[attr-defined]
-                expected_cells_in_strip = task.expected_cells_in_strip  # type: ignore[attr-defined]
-
-                task_timer.Start(
-                    f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
-
-                strip_yielded = 0
-                for tile_entry in nornir_imageregistration.ImageToTilesGenerator(
-                        source_image=working_image,
-                        tile_size=tile_dims,
-                        grid_shape=working_image_grid_dims,
-                        coord_offset=(0, iColumn),
-                        coverage_mask=working_mask):
-                    strip_yielded += 1
-                    yielded_tiles += 1
-                    yield tile_entry
-
-                skipped_empty_cells += expected_cells_in_strip - strip_yielded
-                task_timer.End(
-                    f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
-                del working_image
-                del working_mask
+                    skipped_empty_cells += expected_cells_in_strip - strip_yielded
+                    task_timer.End(
+                        f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+                    del working_image
+                    del working_mask
+            finally:
+                # On an exception or a closed generator, do not assemble strips nobody will read
+                for task, _, _ in pending:
+                    task.cancel()
+                pending.clear()
 
         if skipped_empty_strips > 0 or skipped_empty_cells > 0:
             prettyoutput.Log(
