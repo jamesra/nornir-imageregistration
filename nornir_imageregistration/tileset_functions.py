@@ -14,6 +14,7 @@ import logging
 import re
 
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 import numpy
 
 # Disable decompression bomb protection since we are dealing with huge images on purpose
@@ -26,7 +27,7 @@ import nornir_pools
 import nornir_shared.files
 import nornir_imageregistration.temporaryfiles as temporaryfiles
 from nornir_imageregistration.exceptions import MissingTilesetInputError, as_missing_tileset_error
-from nornir_imageregistration.pillow_helpers import load_image_array
+from nornir_imageregistration.noise_crush import PNG_TEXT_KEY, CrushParams
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +307,9 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
         TileSize = numpy.asarray((TileDims[1], TileDims[0]),
                                  dtype=numpy.int64)  # Pillow uses the opposite ordering of axis
         DoubleTileSize = TileSize * 2  # Double the size
+        # Crushed tiles keep their codes through Lanczos; the output carries a source's nornir_crush chunk.
+        # Every tile of a tileset has the section quanta with gain 1, so any source's chunk is the right one.
+        crush_texts: list[str] = []
 
         def load_and_validate_tile(tile_path: str, position: Quadrant) -> Image.Image | None:
             """
@@ -319,7 +323,11 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             if not os.path.isfile(tile_path):
                 return None
             try:
-                img = Image.fromarray(load_image_array(tile_path))
+                with Image.open(tile_path) as source:
+                    img = Image.fromarray(numpy.array(source))
+                    crush_text = getattr(source, 'text', {}).get(PNG_TEXT_KEY)
+                if crush_text:
+                    crush_texts.append(crush_text)
                 if img.size[0] != TileSize[0] or img.size[1] != TileSize[1]:
                     raise ValueError(
                         f"Existing tile {tile_path} with size {img.size} does not match requested size {TileSize} at {position}")
@@ -387,7 +395,16 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
         resize_size = (int(TileSize[0]), int(TileSize[1]))  # Convert numpy array to tuple of ints
         imFinal = imComposite.resize(resize_size, resample=Image.Resampling.LANCZOS)  # type: ignore[union-attr]
         try:
-            imFinal.save(OutputFileFullPath, optimize=True)
+            pnginfo = None
+            if crush_texts:
+                # Lanczos rings past the top code at sharp edges; codes above max_code do not exist.
+                max_code = CrushParams.from_json(crush_texts[0]).max_code
+                final_codes = numpy.asarray(imFinal)
+                if final_codes.max() > max_code:
+                    imFinal = Image.fromarray(numpy.minimum(final_codes, max_code).astype(final_codes.dtype))
+                pnginfo = PngInfo()
+                pnginfo.add_text(PNG_TEXT_KEY, crush_texts[0])
+            imFinal.save(OutputFileFullPath, optimize=True, pnginfo=pnginfo)
         except FileExistsError:
             pass
         except (FileNotFoundError, OSError) as e:

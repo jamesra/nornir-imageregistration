@@ -2499,7 +2499,8 @@ def SaveImage_JPeg2000(ImageFullPath, image, tile_dim=None):
 # Legacy: SaveImage_JPeg2000_Tile (PIL tile save) not used; current save path uses other methods.
 #
 
-def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None):
+def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None,
+                          crush_gain: bool = False):
     """Load an image, retrying when the filesystem asks us to try again.
 
     CIFS returns ``EAGAIN`` (errno 11) when too many opens are in flight.
@@ -2507,7 +2508,7 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None, value_sca
     """
     for attempt in range(6):
         try:
-            return _load_image_by_extension_once(ImageFullPath, dtype, value_scale)
+            return _load_image_by_extension_once(ImageFullPath, dtype, value_scale, crush_gain)
         except OSError as exc:
             transient = getattr(exc, "errno", None) in (
                 errno.EAGAIN, errno.EWOULDBLOCK, errno.EBUSY)
@@ -2519,11 +2520,14 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None, value_sca
     raise OSError(f"Unable to load image: {ImageFullPath}")
 
 
-def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None):
+def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None,
+                                  crush_gain: bool = False):
     """
     Loads an image file and returns an ndarray of dtype
     :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide.
     :param value_scale: For integer images loaded as float, divide by this fixed value instead of the image's own maximum
+    :param crush_gain: With value_scale, apply the gain in the image's ``nornir_crush`` chunk (see
+        ``noise_crush.unit_gain_correction``)
     """
     (root, ext) = os.path.splitext(ImageFullPath)
 
@@ -2557,6 +2561,13 @@ def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, v
                         max_val = image.max() if value_scale is None else value_scale
                         if max_val != 0:
                             image /= max_val
+
+                        if crush_gain and value_scale is not None:
+                            correction = nornir_imageregistration.noise_crush.unit_gain_correction(
+                                getattr(im, 'text', {}).get(nornir_imageregistration.noise_crush.PNG_TEXT_KEY))
+                            if correction is not None:
+                                image *= correction[0]
+                                image += correction[1]
                     elif nornir_imageregistration.IsFloatArray(dtype):
                         # Ensure data is in the range 0 to 1 for floating types
                         if im.mode[0] == 'F':
@@ -2595,7 +2606,8 @@ def LoadImage(ImageFullPath: str,
               MaxDimension: float | None = None,
               dtype: DTypeLike | None = None,
               backend: Literal["numpy", "cupy"] | None = None,
-              value_scale: float | None = None):
+              value_scale: float | None = None,
+              crush_gain: bool = False):
     """
     Loads an image converts to greyscale, masks it, and removes extrema pixels.
 
@@ -2606,6 +2618,7 @@ def LoadImage(ImageFullPath: str,
     :param backend: If "numpy", return a NumPy array (error if conversion fails). If "cupy", return a CuPy array (error if CuPy not available). If None, use the active computation backend (current behaviour).
     :param value_scale: When an integer image is loaded as a float dtype, divide by this fixed value instead of the
         image's own maximum, so tiles that share a value unit (crushed codes) keep it. None keeps the per-image maximum.
+    :param crush_gain: With value_scale, correct a crushed tile by the gain recorded in its ``nornir_crush`` chunk.
     :returns: Loaded image.  Masked areas and extrema pixel values are replaced with gaussian noise matching the median and std. dev. of the unmasked image.
     :rtype: ndimage
     """
@@ -2616,7 +2629,7 @@ def LoadImage(ImageFullPath: str,
 
     (root, ext) = os.path.splitext(ImageFullPath)
 
-    image = _LoadImageByExtension(ImageFullPath, dtype, value_scale)
+    image = _LoadImageByExtension(ImageFullPath, dtype, value_scale, crush_gain)
 
     if not MaxDimension is None:
         scalar = ScalarForMaxDimension(MaxDimension, image.shape)

@@ -40,7 +40,7 @@ class Tile:
     _image_size: NDArray | None  # Size of the image.  It may not match the dimensions of the Source Space if the image is downsampled.
     _fftimage: NDArray | None  # The FFT of the padded image data
     _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
-    _value_scale: float | None  # Fixed divisor for integer pixels (crushed codes); None divides by each image's maximum
+    _value_scale: float | None  # Fixed divisor for integer pixels (crushed codes, gain applied); None divides by each image's maximum
 
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
@@ -104,7 +104,8 @@ class Tile:
                 assert self._imagepath is not None
                 self._image = nornir_imageregistration.LoadImage(self._imagepath,
                                                                  dtype=nornir_imageregistration.default_image_dtype(),
-                                                                 value_scale=self._value_scale)
+                                                                 value_scale=self._value_scale,
+                                                                 crush_gain=self._value_scale is not None)
             except IOError:
                 prettyoutput.LogErr(f'Unable to load {self._imagepath}')
                 raise
@@ -249,7 +250,8 @@ class Tile:
         4 images are used and the transform is at full-resolution as is customary this value should be 0.25.
         Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
         :param value_scale: Divide integer pixels by this fixed value when loading instead of the image's own maximum,
-        so every tile keeps the same value unit (crushed codes). None keeps the per-image maximum.
+        so every tile keeps the same value unit (crushed codes). The tile's gain from its ``nornir_crush`` chunk is
+        applied too, so assembled codes are gain-corrected with gain 1. None keeps the per-image maximum.
         """
 
         if transform is None:

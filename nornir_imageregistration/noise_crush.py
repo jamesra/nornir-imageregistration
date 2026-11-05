@@ -201,6 +201,25 @@ def read_crush_params(path: str) -> CrushParams | None:
     return CrushParams.from_json(text) if text else None
 
 
+def unit_gain_correction(chunk_text: str | None) -> tuple[float, float] | None:
+    """
+    Scale and bias that apply a tile's gain to its codes loaded as ``code / max_code``.
+
+    TileGains records a tile's gain in its ``nornir_crush`` chunk; gain-corrected counts are
+    ``(code * step + step / 2 + offset) / gain``. The same counts as codes of the section quanta with
+    gain 1, divided by ``max_code``, are ``unit * scale + bias``, so assembly corrects a crushed tile
+    without inflating it to counts. None when the chunk has no gain or a gain of 1.
+    """
+    if not chunk_text:
+        return None
+    gain = json.loads(chunk_text).get('gain')
+    if gain is None or gain == 1 or gain <= 0:
+        return None
+    params = CrushParams.from_json(chunk_text)
+    half_step_and_offset = 0.5 + params.offset / params.step  # in codes
+    return 1.0 / gain, half_step_and_offset * (1.0 / gain - 1.0) / params.max_code
+
+
 #: Raw-tile reads retry transient share errors (EBUSY/EAGAIN) this many times in all, waiting
 #: RAW_READ_BASE_DELAY seconds before the first retry and doubling: 0.5 + 1 + 2 + 4 = 7.5 s at most.
 RAW_READ_ATTEMPTS = 5
