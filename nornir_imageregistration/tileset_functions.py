@@ -247,7 +247,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
 
         # Copy synchronously so we do not queue unbounded CIFS copies on the shared executor.
         try:
-            nornir_shared.files.copy_file(temp_output, OutputFileFullPath, atomic=nornir_shared.files.tile_copy_atomic())
+            nornir_shared.files.copy_file(temp_output, OutputFileFullPath)
         except MissingTilesetInputError:
             raise
         except (FileNotFoundError, OSError) as e:
