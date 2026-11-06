@@ -353,6 +353,10 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         # order. Submitting every strip up front kept every finished strip alive in its Future until the generator
         # ended, and an early exit (an exception or a closed generator) then waited for the whole section to assemble.
         strips = []
+        # Strips are consumed left to right. A tile is only needed up to the last strip that covers it; its decoded
+        # image is released after that strip is assembled. Tile.Image caches for the life of the tile, so without this a
+        # CuPy run holds every tile of the section on the GPU (RC1_Crush 197: 974 tiles x 4080^2 x 2 B = 32 GB on 24 GB).
+        last_strip_of_tile: dict[int, tuple[int, nornir_imageregistration.tile.Tile]] = {}
         iColumn = 0
         while iColumn < grid_dims[1]:
             origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
@@ -369,16 +373,25 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
             fixed_region = nornir_imageregistration.Rectangle.CreateFromPointAndArea(origin, working_image_shape)  # type: ignore[arg-type]
 
-            if len(self.TargetSpaceIntersections(fixed_region)) == 0:
+            covering_tiles = self.TargetSpaceIntersections(fixed_region)
+            if len(covering_tiles) == 0:
                 skipped_empty_strips += 1
                 skipped_empty_cells += int(np.prod(working_image_grid_dims))
             else:
                 strips.append((iColumn, working_image_grid_dims, fixed_region))
+                for covering_tile in covering_tiles:
+                    last_strip_of_tile[id(covering_tile)] = (len(strips) - 1, covering_tile)
 
             iColumn += working_image_grid_dims[1]
 
+        tiles_ending_in_strip: dict[int, list[nornir_imageregistration.tile.Tile]] = collections.defaultdict(list)
+        for strip_number, covering_tile in last_strip_of_tile.values():
+            tiles_ending_in_strip[strip_number].append(covering_tile)
+        del last_strip_of_tile
+
         pending: collections.deque = collections.deque()
         next_strip = 0
+        consumed_strips = 0
         with nornir_pools.InstrumentedThreadPoolExecutor('mosaic-strips', max_workers=strip_workers) as executor:
             def fill_window() -> None:
                 """Submit strips until strip_workers are pending."""
@@ -397,6 +410,10 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                     task, iColumn, working_image_grid_dims = pending.popleft()
                     working_image, working_mask = task.result()
                     del task
+                    # No later strip covers these tiles, and this strip is assembled: free their images.
+                    for finished_tile in tiles_ending_in_strip.pop(consumed_strips, ()):
+                        finished_tile.ReleaseLoadedImage()
+                    consumed_strips += 1
                     expected_cells_in_strip = int(np.prod(working_image_grid_dims))
 
                     fill_window()  # keep the next strips assembling while this one is sliced and saved

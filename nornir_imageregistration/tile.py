@@ -113,6 +113,19 @@ class Tile:
         assert self._image is not None
         return self._image
 
+    def ReleaseLoadedImage(self) -> None:
+        """
+        Drop the decoded image (and the arrays derived from it) when it can be loaded again from ``imagepath``.
+
+        ``Image`` caches for the life of the tile, which on a CuPy backend keeps every tile of a section on the GPU.
+        A tile created from an in-memory array keeps it: there is nothing to reload it from.
+        """
+        if self._imagepath is None:
+            return
+        self._image = None
+        self._paddedimage = None
+        self._fftimage = None
+
     @property
     def ImageSize(self) -> NDArray[np.floating]:
         """
