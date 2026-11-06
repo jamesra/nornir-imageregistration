@@ -20,7 +20,7 @@ class TestCreateOneTilesetTileWithPillowOverNetworkCopy(unittest.TestCase):
         copy_finished = False
         pillow_called = False
 
-        def fake_copyfile(src: str, dst: str) -> None:
+        def fake_copyfile(src: str, dst: str, **_kwargs) -> None:
             nonlocal copy_started, copy_finished
             copy_started = True
             self.assertTrue(pillow_called, 'copyfile should run after pillow tile build')
