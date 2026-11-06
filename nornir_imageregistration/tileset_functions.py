@@ -7,7 +7,7 @@ we build the pyramid, which tends to be slow for sometimes hundreds of thousands
 of small files.  This also helps the image I/O, which at this time is implemented
 by pillow as lots of small I/O requests against the image file.
 """
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence, Set as AbstractSet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
 import functools
@@ -65,6 +65,15 @@ def parse_grid_tile_xy(filename: str, file_prefix: str, file_postfix: str) -> tu
     if match is None:
         return None
     return int(match.group(1)), int(match.group(2))
+
+
+def list_directory_names(directory: str) -> list[str]:
+    """File names in a directory from one listing (one round trip, not a stat per tile); empty if it does not exist."""
+    try:
+        with os.scandir(directory) as entries:
+            return [entry.name for entry in entries]
+    except FileNotFoundError:
+        return []
 
 
 def list_grid_tile_coords(directory: str, file_prefix: str, file_postfix: str) -> set[tuple[int, int]]:
@@ -174,7 +183,8 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                                               temp_input_dir: str | None,
                                               output_level_temp_dir: str | None,
                                               executor: ThreadPoolExecutor | None = None,
-                                              move_to_destination: Callable[[str, str], None] | None = None):
+                                              move_to_destination: Callable[[str, str], None] | None = None,
+                                              source_tile_names: AbstractSet[str] | None = None):
     """Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots
        of small IO calls instead of reading the entire file.
        The temporary files are not removed so the next tileset level can utilize the local data.
@@ -192,6 +202,8 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
            directory in this thread.  The caller owns the transfer (it must finish it, and report its errors, before
            it treats the level as complete) so the build is not paced by the network.  The local tile stays in place
            for the next level to read.
+       :param source_tile_names: File names present in the source level directory, from one directory listing.  Lets
+           the existence of an input be answered without a stat on the share per tile.
        """
 
     should_cleanup_executor = executor is None
@@ -220,41 +232,30 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
 
         source_paths = (TopLeft, TopRight, BottomLeft, BottomRight)
 
-        use_temp_dir = False
-        if input_temp_dir_exists:
-            cached_paths = tuple(
-                os.path.join(temp_level_input_dir, base)
-                for base in (TopLeftBase, TopRightBase, BottomLeftBase, BottomRightBase))
-            use_temp_dir = any(os.path.exists(path) for path in cached_paths)
-
-        if use_temp_dir:
-            temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight = cached_paths
+        # Each input comes from the local copy of the finer level when it is there, otherwise from the source level.
+        # The local copy is the one this process wrote a moment ago, and a missing local input falls back to the
+        # source: the cache directory exists but is missing a tile's inputs whenever a level is rebuilt after an
+        # interrupted run, because the previous run consumed and deleted the cached inputs it had already used (#256).
+        # Nothing is statted on the share for an input that is local, and none is copied back from it: that staging was
+        # 60% of level 2's samples on RC1_Crush 200, all of it per-file metadata and copies of tiles already on local disk.
+        local_inputs: list[str | None] = []
+        chosen_paths: list[str] = []
+        for base, source_path in zip((TopLeftBase, TopRightBase, BottomLeftBase, BottomRightBase), source_paths):
+            cached_path = os.path.join(temp_level_input_dir, base) if input_temp_dir_exists else None
+            if cached_path is not None and os.path.exists(cached_path):
+                local_inputs.append(cached_path)
+                chosen_paths.append(cached_path)
+            else:
+                local_inputs.append(None)
+                chosen_paths.append(source_path)
+        use_temp_dir = any(path is not None for path in local_inputs)
+        temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight = chosen_paths
+        if source_tile_names is None:
+            any_source_exists = any(os.path.isfile(path) for path in chosen_paths)
         else:
-            # Read straight from the source when the local cache holds none of this tile's
-            # inputs. The cache paths were previously left in place in that case -- they were
-            # only replaced by the source paths when the cache *directory* was absent -- so a
-            # tile whose inputs had not been cached was handed four paths that do not exist.
-            # Nothing could be assembled from them, so the function logged "Pyramid tile not
-            # written although source tiles exist" and returned, silently leaving a hole in the
-            # level even though every source tile was present on disk.
-            #
-            # The directory exists but is missing a tile's inputs whenever a level is rebuilt
-            # after an interrupted run: the previous run consumed and deleted the cached inputs
-            # it had already used, and the caller only falls back to None when the directory is
-            # gone entirely. (#256)
-            temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight = source_paths
-        any_source_exists = any(os.path.isfile(path) for path in source_paths)
-
-        # Verify the contents of the temporary directory if they exist
-        if use_temp_dir:
-            copy_task_iter = executor.map(
-                _copy_source_tile_local,
-                source_paths,
-                [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight],
-            )
-
-            for _ in copy_task_iter:
-                pass
+            any_source_exists = any(local is not None or base in source_tile_names
+                                    for local, base in zip(local_inputs, (TopLeftBase, TopRightBase,
+                                                                          BottomLeftBase, BottomRightBase)))
 
         outputbase = os.path.basename(OutputFileFullPath)
         temp_output = os.path.join(temp_output_dir, outputbase)
@@ -288,8 +289,7 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                     # prettyoutput.Log(f"Error removing temporary file {temp_file}: {e}")
                     pass
 
-            remove_tasks = executor.map(remove_temp_file,
-                                        [temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight])
+            remove_tasks = executor.map(remove_temp_file, [path for path in local_inputs if path is not None])
             for _ in remove_tasks:
                 pass
 
