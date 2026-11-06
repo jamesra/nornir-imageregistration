@@ -7,7 +7,7 @@ we build the pyramid, which tends to be slow for sometimes hundreds of thousands
 of small files.  This also helps the image I/O, which at this time is implemented
 by pillow as lots of small I/O requests against the image file.
 """
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
 import logging
@@ -145,13 +145,29 @@ def GetTempDirForLevelDir(fullpath: str):
     return os.path.join(temporaryfiles.gettempdir(), os.path.basename(fullpath))
 
 
+def copy_tile_to_destination(local_tile: str, destination: str) -> None:
+    """Copy a locally built tile to its final path; a missing destination directory is reported as a tileset error."""
+    try:
+        nornir_shared.files.copy_file(local_tile, destination)
+    except MissingTilesetInputError:
+        raise
+    except (FileNotFoundError, OSError) as e:
+        if isinstance(e, FileNotFoundError) or e.errno == errno.ENOENT:
+            dest_dir = os.path.dirname(destination)
+            missing_paths = [dest_dir] if dest_dir else []
+            raise as_missing_tileset_error(
+                destination, missing_paths, e, for_output=True) from e
+        raise
+
+
 def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                                               TopLeft: str, TopRight: str,
                                               BottomLeft: str, BottomRight: str,
                                               OutputFileFullPath: str,
                                               temp_input_dir: str | None,
                                               output_level_temp_dir: str | None,
-                                              executor: ThreadPoolExecutor | None = None):
+                                              executor: ThreadPoolExecutor | None = None,
+                                              move_to_destination: Callable[[str, str], None] | None = None):
     """Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots
        of small IO calls instead of reading the entire file.
        The temporary files are not removed so the next tileset level can utilize the local data.
@@ -165,6 +181,10 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
 
        :param input_level_temp_dir: Input temporary directory.  If passed, it is assumed the directory exists
        :param output_level_temp_dir: Output temporary directory.  If passed, it is assumed the directory exists
+       :param move_to_destination: Called with (local tile, final path) in place of copying the tile to the output
+           directory in this thread.  The caller owns the transfer (it must finish it, and report its errors, before
+           it treats the level as complete) so the build is not paced by the network.  The local tile stays in place
+           for the next level to read.
        """
 
     should_cleanup_executor = executor is None
@@ -245,18 +265,11 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                 )
             return
 
-        # Copy synchronously so we do not queue unbounded CIFS copies on the shared executor.
-        try:
-            nornir_shared.files.copy_file(temp_output, OutputFileFullPath)
-        except MissingTilesetInputError:
-            raise
-        except (FileNotFoundError, OSError) as e:
-            if isinstance(e, FileNotFoundError) or e.errno == errno.ENOENT:
-                dest_dir = os.path.dirname(OutputFileFullPath)
-                missing_paths = [dest_dir] if dest_dir else []
-                raise as_missing_tileset_error(
-                    OutputFileFullPath, missing_paths, e, for_output=True) from e
-            raise
+        # Without a mover, copy synchronously so we do not queue unbounded CIFS copies on the shared executor.
+        if move_to_destination is None:
+            copy_tile_to_destination(temp_output, OutputFileFullPath)
+        else:
+            move_to_destination(temp_output, OutputFileFullPath)
 
         # Remove the input because this function is used to generate levels, and once we generate the next level we don't need the source level
         if use_temp_dir:
