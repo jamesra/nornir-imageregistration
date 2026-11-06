@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -37,7 +38,7 @@ class TestGenerateOptimizedTilesRelease(unittest.TestCase):
     tileset.TranslateToZeroOrigin()
     return tileset
 
-  def _generate(self, tileset):
+  def _generate(self, tileset, prefetch_strips=0, wait_for_tile=None):
     """
     Run GenerateOptimizedTiles one tile column per strip as the CuPy backend does (one strip at a time, tiles decoded
     in this process), recording which tiles hold an image after each strip's tiles are loaded.
@@ -46,9 +47,16 @@ class TestGenerateOptimizedTilesRelease(unittest.TestCase):
     CuPy assembly does; the CPU path decodes in worker processes and never caches in this process.
     """
     resident_at_strip: list[list[bool]] = []
+    prefetched_before_first_strip: list[bool] = []
     tiles = [tileset[key] for key in sorted(tileset)]
 
     def loading_assemble(FixedRegion=None, target_space_scale=None):
+      if wait_for_tile is not None and not resident_at_strip:
+        # The first strip's assembly: give the prefetcher time to reach the tile it should be loading ahead
+        deadline = time.monotonic() + 5.0
+        while tiles[wait_for_tile]._image is None and time.monotonic() < deadline:
+          time.sleep(0.01)
+        prefetched_before_first_strip.append(tiles[wait_for_tile]._image is not None)
       for tile in tileset.TargetSpaceIntersections(FixedRegion):
         _ = tile.Image
       resident_at_strip.append([t._image is not None for t in tiles])
@@ -59,7 +67,9 @@ class TestGenerateOptimizedTilesRelease(unittest.TestCase):
     with mock.patch.object(nornir_imageregistration, 'GetActiveComputationLib',
                            return_value=nornir_imageregistration.ComputationLib.cupy):
       yielded = list(tileset.GenerateOptimizedTiles(tile_dims=(32, 32), max_temp_image_area=32 * 32,
-                                                    target_space_scale=1.0))
+                                                    target_space_scale=1.0,
+                                                    prefetch_strips=prefetch_strips))
+    self.prefetched_before_first_strip = prefetched_before_first_strip
     return yielded, resident_at_strip, tiles
 
   def test_tile_image_is_released_after_its_last_strip(self) -> None:
@@ -72,6 +82,41 @@ class TestGenerateOptimizedTilesRelease(unittest.TestCase):
         held = {i for i, is_held in enumerate(resident) if is_held}
         self.assertLessEqual(held, {strip_number - 1, strip_number, strip_number + 1},
                              f"strip {strip_number} holds images of tiles {sorted(held)}")
+      self.assertFalse(any(t._image is not None for t in tiles))
+
+  def test_prefetch_loads_tiles_ahead_and_stays_bounded(self) -> None:
+    """With prefetch_strips=2 a tile three strips on is decoded before strip 0 assembles, and none beyond the window."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      yielded, resident_at_strip, tiles = self._generate(self._row_of_tiles(tmp_dir, count=10), prefetch_strips=2,
+                                                         wait_for_tile=3)
+      self.assertEqual(len(yielded), 10)
+      self.assertEqual(self.prefetched_before_first_strip, [True])
+      for strip_number, resident in enumerate(resident_at_strip):
+        held = {i for i, is_held in enumerate(resident) if is_held}
+        # Tiles N-1..N+1 cover strip N; the assembly window plus prefetch reaches strip N+3 and its tiles N+2..N+4
+        self.assertLessEqual(held, set(range(strip_number - 1, strip_number + 5)),
+                             f"strip {strip_number} holds images of tiles {sorted(held)}")
+      self.assertFalse(any(t._image is not None for t in tiles))
+
+  def test_closing_the_generator_early_releases_prefetched_images(self) -> None:
+    """Abandoning the run after one strip leaves no decoded images behind."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tileset = self._row_of_tiles(tmp_dir, count=10)
+      tiles = [tileset[key] for key in sorted(tileset)]
+
+      def loading_assemble(FixedRegion=None, target_space_scale=None):
+        for tile in tileset.TargetSpaceIntersections(FixedRegion):
+          _ = tile.Image
+        shape = (int(FixedRegion.Height), int(FixedRegion.Width))
+        return np.full(shape, 0.5, dtype=np.float32), np.ones(shape, dtype=bool)
+
+      tileset.AssembleImage = loading_assemble
+      with mock.patch.object(nornir_imageregistration, 'GetActiveComputationLib',
+                             return_value=nornir_imageregistration.ComputationLib.cupy):
+        generator = tileset.GenerateOptimizedTiles(tile_dims=(32, 32), max_temp_image_area=32 * 32,
+                                                   target_space_scale=1.0, prefetch_strips=2)
+        next(generator)
+        generator.close()
       self.assertFalse(any(t._image is not None for t in tiles))
 
   def test_release_does_not_change_the_output(self) -> None:

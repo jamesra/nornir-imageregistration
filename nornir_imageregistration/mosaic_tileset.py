@@ -16,6 +16,11 @@ from nornir_imageregistration import Rectangle, RectLike
 from nornir_imageregistration.env_flags import env_is_truthy
 import nornir_pools
 
+logger = logging.getLogger(__name__)
+
+# Threads decoding tile images ahead of the strips that need them (PNG decode releases the GIL)
+_PREFETCH_WORKERS = 4
+
 
 def _assemble_serial_gpu_enabled() -> bool:
     """Return True when CuPy should use serial TilesToImage instead of threaded."""
@@ -280,9 +285,16 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
 
     def GenerateOptimizedTiles(self, tile_dims=None, max_temp_image_area=None,
                                target_space_scale=None,
-                               source_space_scale=None):
+                               source_space_scale=None,
+                               prefetch_strips=None):
         """
         Divides the mosaic into a grid of smaller non-overlapping tiles.  Yields each tile along with their coordinates in the grid.
+
+        The mosaic is assembled in strips of columns from left to right.  A tile's image is loaded ``prefetch_strips``
+        strips before the strip that first needs it, and released after the last strip that covers it.
+        :param int prefetch_strips: How many strips beyond those being assembled to decode tile images for.  None
+            prefetches two strips when this process caches decoded images (CuPy) and none when the assembly decodes
+            tiles in worker processes (CPU), where a prefetch would decode every tile twice.
         :param max_temp_image_area:
         :param tuple tile_dims: Size of the optimized tiles
         :param float target_space_scale: Scalar for target space, used to adjust size of assembled image
@@ -357,6 +369,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
         # image is released after that strip is assembled. Tile.Image caches for the life of the tile, so without this a
         # CuPy run holds every tile of the section on the GPU (RC1_Crush 197: 974 tiles x 4080^2 x 2 B = 32 GB on 24 GB).
         last_strip_of_tile: dict[int, tuple[int, nornir_imageregistration.tile.Tile]] = {}
+        tiles_of_strip: list[list[nornir_imageregistration.tile.Tile]] = []
         iColumn = 0
         while iColumn < grid_dims[1]:
             origin = (0, iColumn * scaled_tile_dims[1]) + working_image_origin
@@ -379,6 +392,7 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                 skipped_empty_cells += int(np.prod(working_image_grid_dims))
             else:
                 strips.append((iColumn, working_image_grid_dims, fixed_region))
+                tiles_of_strip.append(list(covering_tiles))
                 for covering_tile in covering_tiles:
                     last_strip_of_tile[id(covering_tile)] = (len(strips) - 1, covering_tile)
 
@@ -389,59 +403,98 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
             tiles_ending_in_strip[strip_number].append(covering_tile)
         del last_strip_of_tile
 
+        if prefetch_strips is None:
+            prefetch_strips = 2 if use_cp else 0
+
         pending: collections.deque = collections.deque()
+        prefetch_futures: collections.deque = collections.deque()
         next_strip = 0
         consumed_strips = 0
-        with nornir_pools.InstrumentedThreadPoolExecutor('mosaic-strips', max_workers=strip_workers) as executor:
-            def fill_window() -> None:
-                """Submit strips until strip_workers are pending."""
-                nonlocal next_strip
-                while next_strip < len(strips) and len(pending) < strip_workers:
-                    column, strip_grid_dims, region = strips[next_strip]
-                    pending.append((executor.submit(self.AssembleImage, FixedRegion=region,
-                                                    target_space_scale=target_space_scale),
-                                    column, strip_grid_dims))
-                    next_strip += 1
+        prefetched_through = 0  # strips below this index have had their tile images requested
 
+        def prefetch_tile(tile: nornir_imageregistration.tile.Tile) -> None:
+            """Decode a tile ahead of its strip; a failure here resurfaces when the assembly loads the tile itself."""
             try:
-                while next_strip < len(strips) or pending:
-                    fill_window()
+                _ = tile.Image
+            except Exception:
+                logger.debug("Prefetch of a tile image failed; the assembly will retry", exc_info=True)
 
-                    task, iColumn, working_image_grid_dims = pending.popleft()
-                    working_image, working_mask = task.result()
-                    del task
-                    # No later strip covers these tiles, and this strip is assembled: free their images.
-                    for finished_tile in tiles_ending_in_strip.pop(consumed_strips, ()):
-                        finished_tile.ReleaseLoadedImage()
-                    consumed_strips += 1
-                    expected_cells_in_strip = int(np.prod(working_image_grid_dims))
+        try:
+            with nornir_pools.InstrumentedThreadPoolExecutor('mosaic-strips', max_workers=strip_workers) as executor,                 nornir_pools.InstrumentedThreadPoolExecutor('mosaic-prefetch', max_workers=_PREFETCH_WORKERS) as prefetcher:
+                def prefetch_ahead() -> None:
+                    """Request the images of every tile in the strips up to ``prefetch_strips`` past the assembly window."""
+                    nonlocal prefetched_through
+                    if prefetch_strips <= 0:
+                        return
+                    limit = min(len(strips), next_strip + prefetch_strips)
+                    while prefetched_through < limit:
+                        for tile in tiles_of_strip[prefetched_through]:
+                            if tile._image is None:
+                                prefetch_futures.append(prefetcher.submit(prefetch_tile, tile))
+                        prefetched_through += 1
+                    while prefetch_futures and prefetch_futures[0].done():
+                        prefetch_futures.popleft()
 
-                    fill_window()  # keep the next strips assembling while this one is sliced and saved
+                def fill_window() -> None:
+                    """Submit strips until strip_workers are pending."""
+                    nonlocal next_strip
+                    while next_strip < len(strips) and len(pending) < strip_workers:
+                        column, strip_grid_dims, region = strips[next_strip]
+                        pending.append((executor.submit(self.AssembleImage, FixedRegion=region,
+                                                        target_space_scale=target_space_scale),
+                                        column, strip_grid_dims))
+                        next_strip += 1
 
-                    task_timer.Start(
-                        f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+                try:
+                    while next_strip < len(strips) or pending:
+                        fill_window()
+                        prefetch_ahead()
 
-                    strip_yielded = 0
-                    for tile_entry in nornir_imageregistration.ImageToTilesGenerator(
-                            source_image=working_image,
-                            tile_size=tile_dims,
-                            grid_shape=working_image_grid_dims,
-                            coord_offset=(0, iColumn),
-                            coverage_mask=working_mask):
-                        strip_yielded += 1
-                        yielded_tiles += 1
-                        yield tile_entry
+                        task, iColumn, working_image_grid_dims = pending.popleft()
+                        working_image, working_mask = task.result()
+                        del task
+                        # No later strip covers these tiles, and this strip is assembled: free their images.
+                        for finished_tile in tiles_ending_in_strip.pop(consumed_strips, ()):
+                            finished_tile.ReleaseLoadedImage()
+                        consumed_strips += 1
+                        expected_cells_in_strip = int(np.prod(working_image_grid_dims))
 
-                    skipped_empty_cells += expected_cells_in_strip - strip_yielded
-                    task_timer.End(
-                        f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
-                    del working_image
-                    del working_mask
-            finally:
-                # On an exception or a closed generator, do not assemble strips nobody will read
-                for task, _, _ in pending:
-                    task.cancel()
-                pending.clear()
+                        fill_window()  # keep the next strips assembling while this one is sliced and saved
+                        prefetch_ahead()
+
+                        task_timer.Start(
+                            f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+
+                        strip_yielded = 0
+                        for tile_entry in nornir_imageregistration.ImageToTilesGenerator(
+                                source_image=working_image,
+                                tile_size=tile_dims,
+                                grid_shape=working_image_grid_dims,
+                                coord_offset=(0, iColumn),
+                                coverage_mask=working_mask):
+                            strip_yielded += 1
+                            yielded_tiles += 1
+                            yield tile_entry
+
+                        skipped_empty_cells += expected_cells_in_strip - strip_yielded
+                        task_timer.End(
+                            f'Slice tiles, column {iColumn} of {grid_dims[1] - 1 // working_image_grid_dims[1]}')
+                        del working_image
+                        del working_mask
+                finally:
+                    # On an exception or a closed generator, do not assemble strips nobody will read
+                    for task, _, _ in pending:
+                        task.cancel()
+                    pending.clear()
+                    for prefetch_future in prefetch_futures:
+                        prefetch_future.cancel()
+                    prefetch_futures.clear()
+        finally:
+            # Both pools have stopped, so nothing can decode another image. An early exit leaves the images of strips
+            # nobody consumed; a normal run has released them all.
+            for unreleased in tiles_of_strip[consumed_strips:]:
+                for tile in unreleased:
+                    tile.ReleaseLoadedImage()
 
         if skipped_empty_strips > 0 or skipped_empty_cells > 0:
             prettyoutput.Log(
