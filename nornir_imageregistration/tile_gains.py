@@ -38,6 +38,7 @@ import hashlib
 import itertools
 import json
 import os
+import shutil
 import struct
 import zlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -399,19 +400,30 @@ def stamp_gain_png(path: str, gain: float) -> bool:
     Adds ``gain``, ``effective_step`` (``step / gain``) and ``effective_offset`` (``(step / 2 + offset) / gain``) to the
     chunk's JSON, so ``codes * effective_step + effective_offset`` are gain-corrected counts. Every other chunk is
     copied byte for byte and the file is replaced atomically. Returns False (file untouched) when the PNG has no
-    ``nornir_crush`` chunk or already carries this gain. Host-only: file I/O.
+    ``nornir_crush`` chunk or already carries this gain. Only the chunks before the first ``IDAT`` are read to decide
+    that, so a rerun with unchanged gains reads a few hundred bytes per tile, not its pixel data. A changed gain still
+    copies the rest of the file once (streamed). Host-only: file I/O.
     """
     with open(path, 'rb') as f:
-        data = f.read()
-    if not data.startswith(_PNG_SIGNATURE):
-        raise ValueError(f'Not a PNG file: {path}')
-    pos = len(_PNG_SIGNATURE)
-    while pos + 8 <= len(data):
-        length, chunk_type = struct.unpack('>I4s', data[pos:pos + 8])
-        body = data[pos + 8:pos + 8 + length]
-        if chunk_type == b'IDAT':
-            return False
-        if chunk_type == b'tEXt' and body.split(b'\0', 1)[0] == CRUSH_PNG_TEXT_KEY.encode():
+        if f.read(len(_PNG_SIGNATURE)) != _PNG_SIGNATURE:
+            raise ValueError(f'Not a PNG file: {path}')
+        pos = len(_PNG_SIGNATURE)
+        while True:
+            header = f.read(8)
+            if len(header) < 8:
+                return False
+            length, chunk_type = struct.unpack('>I4s', header)
+            if chunk_type == b'IDAT':
+                return False
+            if chunk_type != b'tEXt':
+                f.seek(length + 4, os.SEEK_CUR)
+                pos += 12 + length
+                continue
+            body = f.read(length)
+            f.seek(4, os.SEEK_CUR)
+            if body.split(b'\0', 1)[0] != CRUSH_PNG_TEXT_KEY.encode():
+                pos += 12 + length
+                continue
             values = json.loads(body.split(b'\0', 1)[1].decode('latin-1'))
             rounded = round(float(gain), 6)
             if values.get('gain') == rounded:
@@ -423,11 +435,13 @@ def stamp_gain_png(path: str, gain: float) -> bool:
                 json.dumps(values, sort_keys=True).encode('latin-1')
             chunk = struct.pack('>I', len(text) - 4) + text + struct.pack('>I', zlib.crc32(text) & 0xFFFFFFFF)
             temp_path = path + '.gainstamp'
-            with open(temp_path, 'wb') as f:
-                f.write(data[:pos])
-                f.write(chunk)
-                f.write(data[pos + 12 + length:])
-            os.replace(temp_path, path)
-            return True
-        pos += 12 + length
-    return False
+            with open(temp_path, 'wb') as out:
+                f.seek(0)
+                out.write(f.read(pos))
+                out.write(chunk)
+                f.seek(pos + 12 + length)
+                shutil.copyfileobj(f, out, 1 << 20)
+            break
+    # Replace after the source is closed: Windows cannot replace an open file.
+    os.replace(temp_path, path)
+    return True

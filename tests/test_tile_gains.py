@@ -168,6 +168,26 @@ class TestStampGainPng(unittest.TestCase):
             self.assertAlmostEqual(values['effective_offset'], 80.0)
             self.assertEqual(noise_crush.read_crush_params(path), params)
 
+    def test_unchanged_gain_reads_only_the_chunks_before_the_pixels(self):
+        import os
+        import tempfile
+
+        from nornir_imageregistration import noise_crush
+
+        params = noise_crush.CrushParams(k=2.5, step=200, sigma=80.0, offset=0, bits=8, source_dtype='uint16')
+        codes = (np.arange(64 * 64) % 251).reshape(64, 64).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, '000.png')
+            noise_crush.save_crushed_png(path, codes, params)
+            self.assertTrue(tile_gains.stamp_gain_png(path, 1.25))
+            with open(path, 'rb') as f:
+                data = f.read()
+            # Cut the file inside its first IDAT chunk: a reader that needs the pixels would fail.
+            with open(path, 'wb') as f:
+                f.write(data[:data.index(b'IDAT') + 4])
+            self.assertFalse(tile_gains.stamp_gain_png(path, 1.25))
+            self.assertEqual(os.path.getsize(path), data.index(b'IDAT') + 4)
+
 
 if __name__ == '__main__':
     unittest.main()
