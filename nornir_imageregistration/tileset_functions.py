@@ -10,6 +10,7 @@ by pillow as lots of small I/O requests against the image file.
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
+import functools
 import logging
 import re
 
@@ -143,6 +144,12 @@ def GetTempPathForTile(fullpath: str):
 def GetTempDirForLevelDir(fullpath: str):
     """Return the temporary level directory path for a tileset level given its full path."""
     return os.path.join(temporaryfiles.gettempdir(), os.path.basename(fullpath))
+
+
+@functools.lru_cache(maxsize=16)
+def _max_code_of_crush_chunk(chunk_json: str) -> int:
+    """Top code of a ``nornir_crush`` chunk; a level's tiles share one chunk, so it is parsed once, not per tile."""
+    return CrushParams.from_json(chunk_json).max_code
 
 
 def copy_tile_to_destination(local_tile: str, destination: str) -> None:
@@ -412,7 +419,7 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             pnginfo = None
             if crush_texts:
                 # Lanczos rings past the top code at sharp edges; codes above max_code do not exist.
-                max_code = CrushParams.from_json(crush_texts[0]).max_code
+                max_code = _max_code_of_crush_chunk(crush_texts[0])
                 final_codes = numpy.asarray(imFinal)
                 if final_codes.max() > max_code:
                     imFinal = Image.fromarray(numpy.minimum(final_codes, max_code).astype(final_codes.dtype))
