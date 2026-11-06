@@ -174,19 +174,46 @@ class TestStampGainPng(unittest.TestCase):
 
         from nornir_imageregistration import noise_crush
 
+        import builtins
+        from unittest import mock
+
         params = noise_crush.CrushParams(k=2.5, step=200, sigma=80.0, offset=0, bits=8, source_dtype='uint16')
-        codes = (np.arange(64 * 64) % 251).reshape(64, 64).astype(np.uint8)
+        codes = np.random.default_rng(0).integers(0, 251, (512, 512)).astype(np.uint8)  # incompressible: ~256 KB PNG
+        real_open = builtins.open
+        bytes_read = []
+
+        class CountingFile:
+            def __init__(self, f):
+                self._f = f
+
+            def read(self, *args):
+                data = self._f.read(*args)
+                bytes_read.append(len(data))
+                return data
+
+            def __getattr__(self, name):
+                return getattr(self._f, name)
+
+            def __enter__(self):
+                self._f.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                return self._f.__exit__(*exc)
+
+        def counting_open(file, mode='r', *args, **kwargs):
+            f = real_open(file, mode, *args, **kwargs)
+            return CountingFile(f) if 'b' in mode and 'r' in mode and str(file).endswith('.png') else f
+
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, '000.png')
             noise_crush.save_crushed_png(path, codes, params)
             self.assertTrue(tile_gains.stamp_gain_png(path, 1.25))
-            with open(path, 'rb') as f:
-                data = f.read()
-            # Cut the file inside its first IDAT chunk: a reader that needs the pixels would fail.
-            with open(path, 'wb') as f:
-                f.write(data[:data.index(b'IDAT') + 4])
-            self.assertFalse(tile_gains.stamp_gain_png(path, 1.25))
-            self.assertEqual(os.path.getsize(path), data.index(b'IDAT') + 4)
+            size = os.path.getsize(path)
+            self.assertGreater(size, 100_000)
+            with mock.patch('builtins.open', counting_open):
+                self.assertFalse(tile_gains.stamp_gain_png(path, 1.25))
+            self.assertLess(sum(bytes_read), 4096, f'read {sum(bytes_read)} of {size} bytes to find the gain unchanged')
 
 
 if __name__ == '__main__':
