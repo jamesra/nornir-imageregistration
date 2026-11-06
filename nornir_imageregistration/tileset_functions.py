@@ -406,7 +406,9 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
                 pnginfo = PngInfo()
                 pnginfo.add_text(PNG_TEXT_KEY, crush_texts[0])
             if pnginfo is not None:
-                # Quantized codes: zlib level 7 is within 2% of optimize=True's size at a quarter of the encode time
+                # Crushed (quantized) tiles only; other tilesets keep optimize=True below.
+                # Benchmark behind PNG_COMPRESS_LEVEL, see noise_crush.py: level 7 is 72.7 KB at 19 ms per 512x512
+                # tile, against optimize=True 71.5 KB at 74 ms, and level 6 75.7 KB at 9 ms.
                 imFinal.save(OutputFileFullPath, compress_level=PNG_COMPRESS_LEVEL, pnginfo=pnginfo)
             else:
                 imFinal.save(OutputFileFullPath, optimize=True)

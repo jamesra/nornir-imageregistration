@@ -38,8 +38,16 @@ CRUSH_VERSION = 1
 DEFAULT_CRUSH_K = 2.5
 SIGMA_METHOD = 'haar_hh_mad_center2048'
 PNG_TEXT_KEY = 'nornir_crush'
-# zlib level for crushed tiles. 512x512 crushed 0943 tiles: level 6 75.7 KB 9 ms, 7 72.7 KB 19 ms, 9 72.0 KB 72 ms,
-# optimize=True 71.5 KB 74 ms. Level 7 is within 2% of the best size at a quarter of its encode time.
+# zlib level for crushed tiles only (uncrushed images keep their own settings).
+# Benchmark 2026-11-06: 96 crops of 512x512 crushed 8-bit tiles from RC2-mirror 0943 Raw8 level 1, Pillow PNG encode,
+# one thread. Quantized codes are mostly noise, so higher zlib effort buys little size:
+#   setting         ms/tile   KB/tile
+#   level 1             2       139.2
+#   level 3             3        80.1
+#   level 6 (old)       9        75.7
+#   level 7            19        72.7   <- chosen: within 2% of the best size at a quarter of optimize=True's time
+#   level 9            72        72.0
+#   optimize=True      74        71.5   (was used for pyramid levels)
 PNG_COMPRESS_LEVEL = 7
 
 # Donoho-Johnstone: MAD / 0.6745 estimates sigma for Gaussian noise.
