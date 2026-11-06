@@ -27,7 +27,7 @@ import nornir_pools
 import nornir_shared.files
 import nornir_imageregistration.temporaryfiles as temporaryfiles
 from nornir_imageregistration.exceptions import MissingTilesetInputError, as_missing_tileset_error
-from nornir_imageregistration.noise_crush import PNG_TEXT_KEY, CrushParams
+from nornir_imageregistration.noise_crush import PNG_COMPRESS_LEVEL, PNG_TEXT_KEY, CrushParams
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +324,8 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
                 return None
             try:
                 with Image.open(tile_path) as source:
-                    img = Image.fromarray(numpy.array(source))
+                    source.load()
+                    img = source.copy()  # an owned buffer, without a tobytes round trip (#189)
                     crush_text = getattr(source, 'text', {}).get(PNG_TEXT_KEY)
                 if crush_text:
                     crush_texts.append(crush_text)
@@ -404,7 +405,11 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
                     imFinal = Image.fromarray(numpy.minimum(final_codes, max_code).astype(final_codes.dtype))
                 pnginfo = PngInfo()
                 pnginfo.add_text(PNG_TEXT_KEY, crush_texts[0])
-            imFinal.save(OutputFileFullPath, optimize=True, pnginfo=pnginfo)
+            if pnginfo is not None:
+                # Quantized codes: zlib level 7 is within 2% of optimize=True's size at a quarter of the encode time
+                imFinal.save(OutputFileFullPath, compress_level=PNG_COMPRESS_LEVEL, pnginfo=pnginfo)
+            else:
+                imFinal.save(OutputFileFullPath, optimize=True)
         except FileExistsError:
             pass
         except (FileNotFoundError, OSError) as e:

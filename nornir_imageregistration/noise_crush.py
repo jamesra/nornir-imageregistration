@@ -38,7 +38,9 @@ CRUSH_VERSION = 1
 DEFAULT_CRUSH_K = 2.5
 SIGMA_METHOD = 'haar_hh_mad_center2048'
 PNG_TEXT_KEY = 'nornir_crush'
-PNG_COMPRESS_LEVEL = 6
+# zlib level for crushed tiles. 512x512 crushed 0943 tiles: level 6 75.7 KB 9 ms, 7 72.7 KB 19 ms, 9 72.0 KB 72 ms,
+# optimize=True 71.5 KB 74 ms. Level 7 is within 2% of the best size at a quarter of its encode time.
+PNG_COMPRESS_LEVEL = 7
 
 # Donoho-Johnstone: MAD / 0.6745 estimates sigma for Gaussian noise.
 _MAD_TO_SIGMA = 0.6745
