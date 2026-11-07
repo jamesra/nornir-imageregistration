@@ -38,6 +38,14 @@ CRUSH_VERSION = 1
 DEFAULT_CRUSH_K = 2.5
 SIGMA_METHOD = 'haar_hh_mad_center2048'
 PNG_TEXT_KEY = 'nornir_crush'
+#: Filter attribute of a section whose tiles were divided by their brightness gain before they were quantized.
+GAIN_FIRST_ATTRIB = 'CrushGainFirst'
+#: Chunk keys of a gain-first tile.  Diagnostic only: nothing downstream corrects the codes with them, because the codes
+#: already are gain-corrected counts.  (``gain`` is a different key: TileGains' correction still to be applied.)
+IMPORT_GAIN_KEY = 'import_gain'
+IMPORT_GAIN_CORRECTED_KEY = 'import_gain_corrected'
+#: A tile with a solved gain below this has essentially no beam: it is flagged, not amplified (its noise would be).
+MIN_CORRECTABLE_GAIN = 0.05
 # zlib level for crushed tiles only (uncrushed images keep their own settings).
 # Benchmark 2026-11-06: 96 crops of 512x512 crushed 8-bit tiles from RC2-mirror 0943 Raw8 level 1, Pillow PNG encode,
 # one thread. Quantized codes are mostly noise, so higher zlib effort buys little size:
@@ -179,11 +187,30 @@ def make_crush_params(sigma: float, section_max: float, source_dtype: DTypeLike,
                        source_dtype=np.dtype(source_dtype).name)
 
 
-def crush(image: NDArray, params: CrushParams) -> NDArray:
-    """Quantize raw counts to codes; values outside ``[offset, offset + max_code * step]`` are clipped."""
-    shifted = np.asarray(image).astype(np.int64) - params.offset
-    np.clip(shifted, 0, None, out=shifted)
-    codes = shifted // params.step
+def gain_corrected_counts(image: NDArray, gain: float) -> NDArray:
+    """Raw counts divided by the tile's brightness *gain* (float64 for wide sources, else float32)."""
+    values = np.asarray(image)
+    working = np.float64 if values.dtype.itemsize > 2 else np.float32
+    return values.astype(working) / working(gain)
+
+
+def crush(image: NDArray, params: CrushParams, gain: float = 1.0) -> NDArray:
+    """
+    Quantize raw counts to codes; values outside ``[offset, offset + max_code * step]`` are clipped.
+
+    With a *gain* other than 1 the counts are divided by it first (gain-first crush): a tile that is dim by *gain* is
+    quantized in the units of the section's brighter tiles, instead of with a step that is several of its own noise
+    sigmas wide.
+    """
+    if gain == 1.0:
+        shifted = np.asarray(image).astype(np.int64) - params.offset
+        np.clip(shifted, 0, None, out=shifted)
+        codes = shifted // params.step
+    else:
+        shifted = gain_corrected_counts(image, gain)
+        shifted -= params.offset
+        np.clip(shifted, 0, None, out=shifted)
+        codes = np.floor(shifted / params.step).astype(np.int64)
     np.clip(codes, 0, params.max_code, out=codes)
     return codes.astype(params.storage_dtype)
 
@@ -193,10 +220,25 @@ def uncrush(codes: NDArray, params: CrushParams, dtype: Any = np.float32) -> NDA
     return (np.asarray(codes).astype(np.float64) * params.step + params.step / 2.0 + params.offset).astype(dtype)
 
 
-def save_crushed_png(path: str, codes: NDArray, params: CrushParams) -> None:
-    """Write codes as a greyscale PNG carrying the parameters in a ``nornir_crush`` tEXt chunk."""
+def crush_chunk_text(params: CrushParams, solved_gain: float | None = None, corrected: bool = True) -> str:
+    """
+    JSON of a tile's ``nornir_crush`` chunk: the section parameters, plus a gain-first tile's own diagnostics.
+
+    *solved_gain* is the brightness gain measured from the overlaps before the crush.  *corrected* is False when the
+    tile was too dim to amplify (see ``MIN_CORRECTABLE_GAIN``) and was quantized as it was captured.
+    """
+    if solved_gain is None:
+        return params.to_json()
+    values = dataclasses.asdict(params)
+    values[IMPORT_GAIN_KEY] = round(float(solved_gain), 6)
+    values[IMPORT_GAIN_CORRECTED_KEY] = bool(corrected)
+    return json.dumps(values, sort_keys=True)
+
+
+def save_crushed_png(path: str, codes: NDArray, params: CrushParams, chunk_text: str | None = None) -> None:
+    """Write codes as a greyscale PNG carrying the parameters in a ``nornir_crush`` tEXt chunk (or *chunk_text*)."""
     info = PngInfo()
-    info.add_text(PNG_TEXT_KEY, params.to_json())
+    info.add_text(PNG_TEXT_KEY, params.to_json() if chunk_text is None else chunk_text)
     # Pillow infers 'L' from uint8 and 'I;16' from uint16.
     codes = np.ascontiguousarray(codes, dtype=params.storage_dtype)
     with Image.fromarray(codes) as im:
@@ -259,21 +301,24 @@ class CrushTileStats:
     clipped_low: int  # raw values below the offset (stored as 0)
 
 
-def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, flip: bool = False) -> CrushTileStats:
+def crush_tile_to_file(source_path: str, target_path: str, params: CrushParams, flip: bool = False,
+                       gain: float = 1.0, solved_gain: float | None = None) -> CrushTileStats:
     """
     Crush one source tile file into a target PNG and return the tile's code histogram and clip counts.
 
     Top-level and picklable so process pools can run it. ``flip`` mirrors rows,
-    matching ``Flip`` in ``ConvertImagesInDict`` (``xp.flip(image, 0)``).
+    matching ``Flip`` in ``ConvertImagesInDict`` (``xp.flip(image, 0)``).  ``gain`` is the divisor applied before
+    quantizing; ``solved_gain`` (gain-first imports) is recorded in the tile's chunk.
     """
     image = load_raw_tile(source_path)
     if flip:
         image = np.flip(image, 0)
 
     os.makedirs(os.path.dirname(target_path) or '.', exist_ok=True)
-    codes = crush(image, params)
-    save_crushed_png(target_path, codes, params)
-    shifted = np.asarray(image).astype(np.int64) - params.offset
+    codes = crush(image, params, gain)
+    save_crushed_png(target_path, codes, params,
+                     None if solved_gain is None else crush_chunk_text(params, solved_gain, gain == solved_gain))
+    shifted = (np.asarray(image).astype(np.int64) if gain == 1.0 else gain_corrected_counts(image, gain)) - params.offset
     return CrushTileStats(code_histogram=np.bincount(codes.ravel(), minlength=params.max_code + 1),
                           clipped_high=int(np.count_nonzero(shifted >= (params.max_code + 1) * params.step)),
                           clipped_low=int(np.count_nonzero(shifted < 0)))
