@@ -215,6 +215,26 @@ class TestStampGainPng(unittest.TestCase):
                 self.assertFalse(tile_gains.stamp_gain_png(path, 1.25))
             self.assertLess(sum(bytes_read), 4096, f'read {sum(bytes_read)} of {size} bytes to find the gain unchanged')
 
+    def test_read_gain_returns_the_stamped_gain(self):
+        import os
+        import tempfile
+
+        from nornir_imageregistration import noise_crush
+        from PIL import Image
+
+        params = noise_crush.CrushParams(k=2.5, step=200, sigma=80.0, offset=0, bits=8, source_dtype='uint16')
+        codes = np.zeros((16, 16), np.uint8)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, '000.png')
+            noise_crush.save_crushed_png(path, codes, params)
+            self.assertIsNone(tile_gains.read_gain_png(path))  # crushed, not stamped yet
+            tile_gains.stamp_gain_png(path, 0.9612345678)
+            self.assertEqual(tile_gains.read_gain_png(path), 0.961235)  # the chunk holds 6 decimals
+            plain = os.path.join(folder, 'plain.png')
+            Image.fromarray(codes).save(plain)
+            self.assertIsNone(tile_gains.read_gain_png(plain))  # legacy tile: no chunk
+            self.assertFalse(tile_gains.stamp_gain_png(plain, 1.1))
+
 
 if __name__ == '__main__':
     unittest.main()

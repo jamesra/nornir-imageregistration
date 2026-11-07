@@ -92,8 +92,13 @@ class TileGainResult:
 
     def checksum(self) -> str:
         """Stable digest of the gain set (rounded to 1e-5), for provenance and staleness checks."""
-        text = ';'.join(f'{t}:{self.gains[t]:.5f}' for t in sorted(self.gains))
-        return hashlib.md5(text.encode('ascii')).hexdigest()
+        return gains_checksum(self.gains)
+
+
+def gains_checksum(gains: Mapping[int, float]) -> str:
+    """Stable digest of a gain set (rounded to 1e-5), for provenance and staleness checks."""
+    text = ';'.join(f'{t}:{gains[t]:.5f}' for t in sorted(gains))
+    return hashlib.md5(text.encode('ascii')).hexdigest()
 
 
 def neighbour_pairs(placements: Mapping[int, TilePlacement], min_side_overlap: float = 0.5,
@@ -393,6 +398,42 @@ CRUSH_PNG_TEXT_KEY = 'nornir_crush'
 _PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 
 
+def _find_crush_chunk(f, path: str) -> tuple[int, int, dict] | None:
+    """
+    Offset, data length and parsed JSON of the ``nornir_crush`` chunk of the open PNG ``f``, or None without one.
+
+    Only the chunks before the first ``IDAT`` are read: a few hundred bytes per tile, not its pixel data.
+    """
+    if f.read(len(_PNG_SIGNATURE)) != _PNG_SIGNATURE:
+        raise ValueError(f'Not a PNG file: {path}')
+    pos = len(_PNG_SIGNATURE)
+    while True:
+        header = f.read(8)
+        if len(header) < 8:
+            return None
+        length, chunk_type = struct.unpack('>I4s', header)
+        if chunk_type == b'IDAT':
+            return None
+        if chunk_type == b'tEXt':
+            body = f.read(length)
+            f.seek(4, os.SEEK_CUR)
+            key, _, text = body.partition(b'\0')
+            if key == CRUSH_PNG_TEXT_KEY.encode():
+                return pos, length, json.loads(text.decode('latin-1'))
+        else:
+            f.seek(length + 4, os.SEEK_CUR)
+        pos += 12 + length
+
+
+def read_gain_png(path: str) -> float | None:
+    """The gain in a tile's ``nornir_crush`` chunk (header-only read), or None when it has no chunk or no gain yet."""
+    with open(path, 'rb') as f:
+        found = _find_crush_chunk(f, path)
+    if found is None or 'gain' not in found[2]:
+        return None
+    return float(found[2]['gain'])
+
+
 def stamp_gain_png(path: str, gain: float) -> bool:
     """
     Write a tile's gain into its ``nornir_crush`` chunk without decoding its pixels.
@@ -405,43 +446,26 @@ def stamp_gain_png(path: str, gain: float) -> bool:
     copies the rest of the file once (streamed). Host-only: file I/O.
     """
     with open(path, 'rb') as f:
-        if f.read(len(_PNG_SIGNATURE)) != _PNG_SIGNATURE:
-            raise ValueError(f'Not a PNG file: {path}')
-        pos = len(_PNG_SIGNATURE)
-        while True:
-            header = f.read(8)
-            if len(header) < 8:
-                return False
-            length, chunk_type = struct.unpack('>I4s', header)
-            if chunk_type == b'IDAT':
-                return False
-            if chunk_type != b'tEXt':
-                f.seek(length + 4, os.SEEK_CUR)
-                pos += 12 + length
-                continue
-            body = f.read(length)
-            f.seek(4, os.SEEK_CUR)
-            if body.split(b'\0', 1)[0] != CRUSH_PNG_TEXT_KEY.encode():
-                pos += 12 + length
-                continue
-            values = json.loads(body.split(b'\0', 1)[1].decode('latin-1'))
-            rounded = round(float(gain), 6)
-            if values.get('gain') == rounded:
-                return False
-            values['gain'] = rounded
-            values['effective_step'] = values['step'] / rounded
-            values['effective_offset'] = (values['step'] / 2.0 + values['offset']) / rounded
-            text = b'tEXt' + CRUSH_PNG_TEXT_KEY.encode('latin-1') + b'\0' + \
-                json.dumps(values, sort_keys=True).encode('latin-1')
-            chunk = struct.pack('>I', len(text) - 4) + text + struct.pack('>I', zlib.crc32(text) & 0xFFFFFFFF)
-            temp_path = path + '.gainstamp'
-            with open(temp_path, 'wb') as out:
-                f.seek(0)
-                out.write(f.read(pos))
-                out.write(chunk)
-                f.seek(pos + 12 + length)
-                shutil.copyfileobj(f, out, 1 << 20)
-            break
+        found = _find_crush_chunk(f, path)
+        if found is None:
+            return False
+        pos, length, values = found
+        rounded = round(float(gain), 6)
+        if values.get('gain') == rounded:
+            return False
+        values['gain'] = rounded
+        values['effective_step'] = values['step'] / rounded
+        values['effective_offset'] = (values['step'] / 2.0 + values['offset']) / rounded
+        text = b'tEXt' + CRUSH_PNG_TEXT_KEY.encode('latin-1') + b'\0' + \
+            json.dumps(values, sort_keys=True).encode('latin-1')
+        chunk = struct.pack('>I', len(text) - 4) + text + struct.pack('>I', zlib.crc32(text) & 0xFFFFFFFF)
+        temp_path = path + '.gainstamp'
+        with open(temp_path, 'wb') as out:
+            f.seek(0)
+            out.write(f.read(pos))
+            out.write(chunk)
+            f.seek(pos + 12 + length)
+            shutil.copyfileobj(f, out, 1 << 20)
     # Replace after the source is closed: Windows cannot replace an open file.
     os.replace(temp_path, path)
     return True
