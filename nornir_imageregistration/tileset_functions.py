@@ -11,8 +11,10 @@ from collections.abc import Callable, Iterable, Sequence, Set as AbstractSet
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
 import functools
+import io
 import logging
 import re
+import threading
 
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -161,10 +163,65 @@ def _max_code_of_crush_chunk(chunk_json: str) -> int:
     return CrushParams.from_json(chunk_json).max_code
 
 
-def copy_tile_to_destination(local_tile: str, destination: str) -> None:
-    """Copy a locally built tile to its final path; a missing destination directory is reported as a tileset error."""
+class TileMemoryCache:
+    """Encoded tiles (PNG file bytes) of one pyramid level held in RAM, keyed by file name.
+
+    The next level reads its inputs from here instead of from a local temp directory.  Encoded bytes are kept rather than
+    decoded images: a crushed 512x512 tile is about 73 KB encoded against 256 KB decoded.
+    """
+
+    _tiles: dict[str, bytes]
+    _lock: threading.Lock
+    _nbytes: int
+
+    def __init__(self) -> None:
+        self._tiles = {}
+        self._lock = threading.Lock()
+        self._nbytes = 0
+
+    def put(self, name: str, data: bytes) -> None:
+        """Store a tile, replacing any tile of the same name."""
+        with self._lock:
+            old = self._tiles.get(name)
+            if old is not None:
+                self._nbytes -= len(old)
+            self._tiles[name] = data
+            self._nbytes += len(data)
+
+    def get(self, name: str) -> bytes | None:
+        """Return a tile's bytes, or None when it is not held."""
+        return self._tiles.get(name)
+
+    def discard(self, name: str) -> None:
+        """Release a tile once the next level has consumed it."""
+        with self._lock:
+            old = self._tiles.pop(name, None)
+            if old is not None:
+                self._nbytes -= len(old)
+
+    def clear(self) -> None:
+        """Release every tile."""
+        with self._lock:
+            self._tiles.clear()
+            self._nbytes = 0
+
+    @property
+    def nbytes(self) -> int:
+        """Total bytes of the tiles held."""
+        return self._nbytes
+
+    def __len__(self) -> int:
+        return len(self._tiles)
+
+
+def copy_tile_to_destination(local_tile: str | bytes, destination: str) -> None:
+    """Copy a locally built tile (a path, or the encoded bytes) to its final path; a missing destination directory is
+    reported as a tileset error."""
     try:
-        nornir_shared.files.copy_file(local_tile, destination)
+        if isinstance(local_tile, bytes):
+            nornir_shared.files.write_file_bytes(destination, local_tile)
+        else:
+            nornir_shared.files.copy_file(local_tile, destination)
     except MissingTilesetInputError:
         raise
     except (FileNotFoundError, OSError) as e:
@@ -184,7 +241,9 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                                               output_level_temp_dir: str | None,
                                               executor: ThreadPoolExecutor | None = None,
                                               move_to_destination: Callable[[str, str], None] | None = None,
-                                              source_tile_names: AbstractSet[str] | None = None):
+                                              source_tile_names: AbstractSet[str] | None = None,
+                                              memory_inputs: TileMemoryCache | None = None,
+                                              memory_outputs: TileMemoryCache | None = None):
     """Copy files to a local temp directory before access to improve IO over the network since Pillow tends to issue lots
        of small IO calls instead of reading the entire file.
        The temporary files are not removed so the next tileset level can utilize the local data.
@@ -204,6 +263,10 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
            for the next level to read.
        :param source_tile_names: File names present in the source level directory, from one directory listing.  Lets
            the existence of an input be answered without a stat on the share per tile.
+       :param memory_inputs: Encoded tiles of the finer level held in RAM.  An input found here is used in preference to
+           the local file and released once the output tile is built.
+       :param memory_outputs: When given, the output tile is encoded to memory, stored here for the next level and handed
+           to ``move_to_destination`` as bytes; nothing is written to the local output directory.
        """
 
     should_cleanup_executor = executor is None
@@ -238,11 +301,19 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         # interrupted run, because the previous run consumed and deleted the cached inputs it had already used (#256).
         # Nothing is statted on the share for an input that is local, and none is copied back from it: that staging was
         # 60% of level 2's samples on RC1_Crush 200, all of it per-file metadata and copies of tiles already on local disk.
+        # A tile held in memory (memory_inputs) is preferred over the local file, and is released once consumed.
+        input_names = (TopLeftBase, TopRightBase, BottomLeftBase, BottomRightBase)
         local_inputs: list[str | None] = []
-        chosen_paths: list[str] = []
-        for base, source_path in zip((TopLeftBase, TopRightBase, BottomLeftBase, BottomRightBase), source_paths):
+        memory_input_names: list[str] = []
+        chosen_paths: list[str | bytes] = []
+        for base, source_path in zip(input_names, source_paths):
+            held = memory_inputs.get(base) if memory_inputs is not None else None
             cached_path = os.path.join(temp_level_input_dir, base) if input_temp_dir_exists else None
-            if cached_path is not None and os.path.exists(cached_path):
+            if held is not None:
+                local_inputs.append(None)
+                memory_input_names.append(base)
+                chosen_paths.append(held)
+            elif cached_path is not None and os.path.exists(cached_path):
                 local_inputs.append(cached_path)
                 chosen_paths.append(cached_path)
             else:
@@ -251,19 +322,25 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
         use_temp_dir = any(path is not None for path in local_inputs)
         temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight = chosen_paths
         if source_tile_names is None:
-            any_source_exists = any(os.path.isfile(path) for path in chosen_paths)
+            any_source_exists = any(isinstance(path, bytes) or os.path.isfile(path) for path in chosen_paths)
         else:
-            any_source_exists = any(local is not None or base in source_tile_names
-                                    for local, base in zip(local_inputs, (TopLeftBase, TopRightBase,
-                                                                          BottomLeftBase, BottomRightBase)))
+            any_source_exists = any(local is not None or base in memory_input_names or base in source_tile_names
+                                    for local, base in zip(local_inputs, input_names))
 
         outputbase = os.path.basename(OutputFileFullPath)
         temp_output = os.path.join(temp_output_dir, outputbase)
 
-        CreateOneTilesetTileWithPillow(TileDims, temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight,
-                                       temp_output, executor=executor)
+        built: list[bytes] = []
+        if memory_outputs is not None:
+            CreateOneTilesetTileWithPillow(TileDims, temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight,
+                                           OutputFileFullPath, executor=executor, output_sink=built.append)
+            tile_written = bool(built)
+        else:
+            CreateOneTilesetTileWithPillow(TileDims, temp_TopLeft, temp_TopRight, temp_BottomLeft, temp_BottomRight,
+                                           temp_output, executor=executor)
+            tile_written = os.path.exists(temp_output)
 
-        if not os.path.exists(temp_output):
+        if not tile_written:
             if any_source_exists:
                 existing_sources = [path for path in source_paths if os.path.isfile(path)]
                 logger.warning(
@@ -273,11 +350,21 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
                 )
             return
 
-        # Without a mover, copy synchronously so we do not queue unbounded CIFS copies on the shared executor.
-        if move_to_destination is None:
-            copy_tile_to_destination(temp_output, OutputFileFullPath)
+        # Hand the tile to the next level, then to the destination.  Without a mover, copy synchronously so we do not
+        # queue unbounded CIFS copies on the shared executor.
+        if memory_outputs is not None:
+            memory_outputs.put(outputbase, built[0])
+            to_move: str | bytes = built[0]
         else:
-            move_to_destination(temp_output, OutputFileFullPath)
+            to_move = temp_output
+        if move_to_destination is None:
+            copy_tile_to_destination(to_move, OutputFileFullPath)
+        else:
+            move_to_destination(to_move, OutputFileFullPath)
+
+        if memory_inputs is not None:
+            for name in memory_input_names:
+                memory_inputs.discard(name)
 
         # Remove the input because this function is used to generate levels, and once we generate the next level we don't need the source level
         if use_temp_dir:
@@ -306,17 +393,21 @@ def CreateOneTilesetTileWithPillowOverNetwork(TileDims: tuple[int, int],
             executor.shutdown(wait=True)
 
 
-def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopRight: str, BottomLeft: str,
-                                   BottomRight: str,
+def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str | bytes, TopRight: str | bytes,
+                                   BottomLeft: str | bytes,
+                                   BottomRight: str | bytes,
                                    OutputFileFullPath: str,
-                                   executor: ThreadPoolExecutor | None = None):
+                                   executor: ThreadPoolExecutor | None = None,
+                                   output_sink: Callable[[bytes], None] | None = None):
     """Create a single tile by merging four tiles from a higher resolution and downsampling
     :param TileDims: (Height, Width) of tiles
-    :param TopLeft: Path to top-left tile
-    :param TopRight: Path to top-right tile
-    :param BottomLeft: Path to bottom-left tile
-    :param BottomRight: Path to bottom-right tile
+    :param TopLeft: Path to top-left tile, or its encoded bytes
+    :param TopRight: Path to top-right tile, or its encoded bytes
+    :param BottomLeft: Path to bottom-left tile, or its encoded bytes
+    :param BottomRight: Path to bottom-right tile, or its encoded bytes
     :param OutputFileFullPath: Path to save the output tile
+    :param output_sink: When given, the encoded output tile is passed to it and nothing is written to
+        OutputFileFullPath, which then only names the tile in messages.
     """
 
     should_cleanup_executor = executor is None
@@ -331,19 +422,19 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
         # Every tile of a tileset has the section quanta with gain 1, so any source's chunk is the right one.
         crush_texts: list[str] = []
 
-        def load_and_validate_tile(tile_path: str, position: Quadrant) -> Image.Image | None:
+        def load_and_validate_tile(tile_path: str | bytes, position: Quadrant) -> Image.Image | None:
             """
             Load a tile image and validate its size
-            :param tile_path: Path to the tile image
+            :param tile_path: Path to the tile image, or its encoded bytes
             :param position: Description of tile position for error messages
             :return: Loaded PIL Image or None if file is missing or unreadable
             """
             # Absent quadrants are normal at mosaic edges; only warn when a path exists
             # but cannot be decoded (handled after the parallel load).
-            if not os.path.isfile(tile_path):
+            if not isinstance(tile_path, bytes) and not os.path.isfile(tile_path):
                 return None
             try:
-                with Image.open(tile_path) as source:
+                with Image.open(io.BytesIO(tile_path) if isinstance(tile_path, bytes) else tile_path) as source:
                     source.load()
                     img = source.copy()  # an owned buffer, without a tobytes round trip (#189)
                     crush_text = getattr(source, 'text', {}).get(PNG_TEXT_KEY)
@@ -367,7 +458,7 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
         }  # type: dict[Quadrant, tuple[tuple[int, int], str]]
 
         source_paths = (TopLeft, TopRight, BottomLeft, BottomRight)
-        existing_sources = [path for path in source_paths if os.path.isfile(path)]
+        existing_sources = [path for path in source_paths if isinstance(path, bytes) or os.path.isfile(path)]
 
         load_futures = {
             executor.submit(load_and_validate_tile, path, quadrant): quadrant
@@ -379,9 +470,9 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
             loaded_tiles[quadrant] = future.result()
 
         failed_existing = [
-            path
+            path if isinstance(path, str) else f'<{quadrant.name} tile held in memory>'
             for quadrant, (_coords, path) in tile_positions.items()
-            if path in existing_sources and loaded_tiles.get(quadrant) is None
+            if any(path is existing for existing in existing_sources) and loaded_tiles.get(quadrant) is None
         ]
 
         imComposite = None
@@ -425,13 +516,18 @@ def CreateOneTilesetTileWithPillow(TileDims: tuple[int, int], TopLeft: str, TopR
                     imFinal = Image.fromarray(numpy.minimum(final_codes, max_code).astype(final_codes.dtype))
                 pnginfo = PngInfo()
                 pnginfo.add_text(PNG_TEXT_KEY, crush_texts[0])
+            # A file's format comes from its extension; a memory buffer has none, and pyramid tiles are PNG.
+            save_target = io.BytesIO() if output_sink is not None else OutputFileFullPath
+            save_format = {'format': 'PNG'} if output_sink is not None else {}
             if pnginfo is not None:
                 # Crushed (quantized) tiles only; other tilesets keep optimize=True below.
                 # Benchmark behind PNG_COMPRESS_LEVEL, see noise_crush.py: level 7 is 72.7 KB at 19 ms per 512x512
                 # tile, against optimize=True 71.5 KB at 74 ms, and level 6 75.7 KB at 9 ms.
-                imFinal.save(OutputFileFullPath, compress_level=PNG_COMPRESS_LEVEL, pnginfo=pnginfo)
+                imFinal.save(save_target, compress_level=PNG_COMPRESS_LEVEL, pnginfo=pnginfo, **save_format)
             else:
-                imFinal.save(OutputFileFullPath, optimize=True)
+                imFinal.save(save_target, optimize=True, **save_format)
+            if output_sink is not None:
+                output_sink(save_target.getvalue())
         except FileExistsError:
             pass
         except (FileNotFoundError, OSError) as e:
