@@ -61,7 +61,7 @@ def OnUseError(message):
     log = logging.getLogger('nornir-assemble')
     log.error(message)
 
-    sys.exit()
+    sys.exit(2)
 
 
 def ValidateArgs(Args):
