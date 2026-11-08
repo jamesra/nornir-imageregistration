@@ -9,11 +9,18 @@ import unittest
 from argparse import Namespace
 from unittest import mock
 
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
+
 import nornir_imageregistration.scripts.nornir_addtransforms as addtransforms
+import nornir_imageregistration.scripts.nornir_assemble as assemble
 import nornir_imageregistration.scripts.nornir_assemble_tiles as assemble_tiles
 import nornir_imageregistration.scripts.nornir_rotate_translate as rotate_translate
 import nornir_imageregistration.scripts.nornir_scaletransform as scaletransform
 import nornir_imageregistration.scripts.nornir_slicetomosaic as slicetomosaic
+
+_dir_parts = st.lists(st.text(alphabet='abcdefghijklmnopqrstuvwxyz0123456789_', min_size=1, max_size=12),
+                      min_size=0, max_size=3)
 
 
 class _Stop(Exception):
@@ -39,6 +46,23 @@ class TestScriptsBareOutputPath(unittest.TestCase):
 
     def test_assemble_tiles_bare_output(self):
         assemble_tiles.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath='out.png', tilepath=None))
+
+    @settings(max_examples=25, deadline=None)
+    @given(parts=_dir_parts)
+    @example(parts=[])
+    @example(parts=['new', 'deeper'])
+    def test_assemble_creates_relative_output_directory(self, parts: list[str]):
+        with tempfile.TemporaryDirectory() as example_dir:
+            os.chdir(example_dir)
+            try:
+                with open('in.mosaic', 'w'):
+                    pass
+                out = os.path.join(*parts, 'out.png')
+                assemble.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath=out, tilepath=None))
+                self.assertTrue(os.path.isdir(os.path.dirname(os.path.abspath(out))))
+                assemble.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath=out, tilepath=None))
+            finally:
+                os.chdir(self._tmp.name)
 
     def test_slicetomosaic_bare_output(self):
         slicetomosaic.ValidateArgs(Namespace(inputpath='a.stos', outputpath='out.stos',

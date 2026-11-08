@@ -9,8 +9,8 @@ unpacks the ``(image, mask)`` tuple from ``AssembleImage``; nornir-assemble-tile
 ``CreateFromMosaic``, whose ``os.path.join(True, ...)`` raised ``TypeError``. It now defaults to
 ``None`` and falls back to the mosaic's folder, as translatemosaic and assemble-tiles do.
 
-Not pinned here, because the script is wrong today and a category 13 change must fix it first:
-a bare output filename makes ``ValidateArgs`` call ``os.makedirs('')`` (nornir-review#280).
+A bare output filename made ``ValidateArgs`` call ``os.makedirs('')`` and raise
+``FileNotFoundError`` before any work (nornir-review#280); it now writes into the working directory.
 """
 import contextlib
 import io
@@ -153,6 +153,15 @@ class TestAssembleScript(unittest.TestCase):
         self.assertEqual(image_call.kwargs, {'bpp': 8})
         self.assertEqual(mask_call.args[0], os.path.join(self.tmp, 'out_mask.png'))
         self.assertIs(mask_call.args[1], run.mask)
+
+    def test_bare_output_filename_saves_in_working_directory(self):
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.tmp)
+        with _stubbed_library() as run:
+            assemble.Execute(self._argv('-p', self.tile_dir, output='out.png'))
+        (image_call, mask_call) = run.save.call_args_list
+        self.assertEqual(image_call.args[0], 'out.png')
+        self.assertEqual(mask_call.args[0], 'out_mask.png')
 
     def test_output_without_extension_is_saved_as_png(self):
         with _stubbed_library() as run:
