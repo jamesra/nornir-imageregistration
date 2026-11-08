@@ -11,7 +11,7 @@ import sys
 import nornir_imageregistration
 import nornir_imageregistration.assemble
 import nornir_shared.misc
-from nornir_imageregistration.scripts._cli_paths import ensure_output_parent_dir, mosaic_default_tile_dir
+from nornir_imageregistration.scripts._cli_paths import validate_mosaic_tile_args
 from nornir_imageregistration.scripts._cli_use_error import exit_on_use_error
 
 
@@ -77,16 +77,7 @@ def OnUseError(message):
 
 def ValidateArgs(Args):
     """Validate parsed args (paths exist, etc.); exits on failure. A missing tilepath becomes the mosaic's directory."""
-    if not os.path.exists(Args.inputpath):
-        OnUseError("Input mosaic file not found: " + Args.inputpath)
-
-    ensure_output_parent_dir(Args.outputpath)
-
-    if Args.tilepath is None:
-        Args.tilepath = mosaic_default_tile_dir(Args.inputpath)
-
-    if not os.path.exists(Args.tilepath):
-        OnUseError("Tile path not found: " + Args.tilepath)
+    validate_mosaic_tile_args(Args, OnUseError)
 
 
 def ReportFileWriteSuccessOrFailure(filepath):

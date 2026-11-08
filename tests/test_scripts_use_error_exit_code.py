@@ -34,7 +34,7 @@ _USE_ERROR_SCRIPTS: dict[str, tuple[str, Callable[[str, str], list[str]]]] = {
     'nornir_addtransforms': ('AddTransforms',
                              lambda missing, tmp: ['-o', os.path.join(tmp, 'out.stos'), '-f', missing, '-w', missing]),
     'nornir_assemble': ('nornir-assemble', _missing_input_argv),
-    'nornir_assemble_tiles': ('nornir-assemble', _missing_input_argv),
+    'nornir_assemble_tiles': ('nornir-assemble-tiles', _missing_input_argv),
     'nornir_registerimages': ('RegisterImages', lambda missing, tmp: ['-f', missing, '-w', missing]),
     'nornir_scaletransform': ('AddTransforms', lambda missing, tmp: _missing_input_argv(missing, tmp) + ['-s', '2']),
     'nornir_show_mosaic_layout': ('nornir-assemble', lambda missing, tmp: _missing_input_argv(missing, tmp) + ['-t', tmp]),
