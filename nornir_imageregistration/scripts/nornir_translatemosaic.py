@@ -34,9 +34,9 @@ def __CreateArgParser(ExecArgs=None):
     parser.add_argument('-tilepath', '-s',
                         action='store',
                         required=False,
-                        type=float,
-                        default=1.0,
-                        help='Path to directory containing tiles listed in mosaic',
+                        type=str,
+                        default=None,
+                        help='Path to directory containing tiles listed in mosaic (default: the mosaic file\'s directory)',
                         dest='tilepath'
                         )
 
