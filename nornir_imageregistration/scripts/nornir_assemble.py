@@ -11,6 +11,7 @@ import sys
 import nornir_imageregistration
 import nornir_imageregistration.assemble
 import nornir_shared.misc
+from nornir_imageregistration.scripts._cli_paths import mosaic_default_tile_dir
 from nornir_imageregistration.scripts._cli_use_error import exit_on_use_error
 
 
@@ -82,7 +83,7 @@ def ValidateArgs(Args):
     os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     if Args.tilepath is None:
-        Args.tilepath = os.path.dirname(os.path.abspath(Args.inputpath))
+        Args.tilepath = mosaic_default_tile_dir(Args.inputpath)
 
     if not os.path.exists(Args.tilepath):
         OnUseError("Tile path not found: " + Args.tilepath)

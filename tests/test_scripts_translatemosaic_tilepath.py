@@ -2,7 +2,8 @@
 
 ``-tilepath`` was declared ``type=float, default=1.0``: a directory path failed argparse
 ("invalid float value") and omitting it made ``ValidateArgs`` call ``os.path.exists(1.0)``,
-which raises ``TypeError``, so the script could not run at all.
+which raises ``TypeError``, so the script could not run at all. The default tile folder for a
+bare mosaic filename was ``''`` (``dirname`` without ``abspath``), so it exited 2 "Tile path not found".
 """
 import contextlib
 import io
@@ -52,6 +53,28 @@ class TestTranslateMosaicTilePath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             expected = tmp if tile_dir_name is None else os.path.join(tmp, tile_dir_name)
             self.assertEqual(self._image_folder_used(tmp, tile_dir_name), expected)
+
+    def test_bare_mosaic_filename_uses_working_directory(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(tmp.name)
+        with open('in.mosaic', 'w'):
+            pass
+        args, _ = translatemosaic.ParseArgs(['-i', 'in.mosaic', '-o', 'out.mosaic'])
+        translatemosaic.ValidateArgs(args)
+        self.assertEqual(os.path.normcase(args.tilepath), os.path.normcase(os.getcwd()))
+
+    def test_missing_tile_folder_exits_with_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mosaic_path = os.path.join(tmp, 'in.mosaic')
+            with open(mosaic_path, 'w'):
+                pass
+            argv = ['-i', mosaic_path, '-o', os.path.join(tmp, 'out.mosaic'), '-s', os.path.join(tmp, 'absent')]
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                    self.assertRaises(SystemExit) as cm:
+                translatemosaic.ValidateArgs(translatemosaic.ParseArgs(argv)[0])
+            self.assertEqual(cm.exception.code, 2)
 
     def test_short_option_parses_as_path(self):
         args, _ = translatemosaic.ParseArgs(['-i', 'in.mosaic', '-o', 'out.mosaic', '-s', os.path.join('a', 'b')])
