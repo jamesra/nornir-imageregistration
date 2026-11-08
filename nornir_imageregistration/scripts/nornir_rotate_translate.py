@@ -9,6 +9,7 @@ import os
 import sys
 
 from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
+from nornir_imageregistration.scripts._cli_paths import ensure_output_parent_dir
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
 
@@ -81,7 +82,7 @@ def Execute(ExecArgs=None):
 
     stosArgs = StosOverrideArgs(Args)
 
-    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
+    ensure_output_parent_dir(Args.outputpath)
 
     alignRecord = sb.SliceToSliceRigidRegistration(target_image=stosArgs.ControlImage,
                                                    source_image=stosArgs.WarpedImage,

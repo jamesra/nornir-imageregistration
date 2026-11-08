@@ -14,6 +14,7 @@ from nornir_shared.argparse_helpers import IntegerPair, IntegerList
 import nornir_imageregistration
 import nornir_imageregistration.local_distortion_correction
 from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
+from nornir_imageregistration.scripts._cli_paths import ensure_output_parent_dir
 
 
 def __CreateArgParser(ExecArgs=None):
@@ -113,7 +114,7 @@ def Execute(ExecArgs=None):
     stosArgs = StosOverrideArgs(Args)
     inputStos = stosArgs.MergeStosAndArgs(Args)
 
-    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
+    ensure_output_parent_dir(Args.outputpath)
 
     nornir_imageregistration.local_distortion_correction.RefineStosFile(inputStos,
                                                                         Args.outputpath,

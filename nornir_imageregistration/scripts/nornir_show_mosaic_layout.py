@@ -10,6 +10,7 @@ import sys
 
 import nornir_imageregistration
 import nornir_shared.misc
+from nornir_imageregistration.scripts._cli_paths import ensure_output_parent_dir
 from nornir_imageregistration.scripts._cli_use_error import exit_on_use_error
 
 
@@ -95,7 +96,7 @@ def ValidateArgs(Args):
         Args.outputpath += '.svg'
 
     output_file = GenerateAbsOrMosaicRelativePath(Args.outputpath, Args.inputpath)
-    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+    ensure_output_parent_dir(output_file)
 
     tile_path = GenerateAbsOrMosaicRelativePath(Args.tilepath, Args.inputpath)
     if not os.path.isdir(tile_path):
