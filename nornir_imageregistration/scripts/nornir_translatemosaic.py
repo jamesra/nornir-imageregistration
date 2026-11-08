@@ -66,8 +66,7 @@ def ValidateArgs(Args):
     if Args.tilepath is None:
         Args.tilepath = os.path.dirname(Args.inputpath)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     if not Args.tilepath is None:
         if not os.path.exists(Args.tilepath):
