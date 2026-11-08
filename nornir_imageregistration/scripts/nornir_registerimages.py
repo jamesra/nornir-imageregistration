@@ -5,7 +5,6 @@ Created on May 21, 2016
 '''
 
 import argparse
-import logging
 import os
 import sys
 
@@ -16,6 +15,7 @@ import nornir_imageregistration.core as core
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.spatial as spatial
 import nornir_shared.misc
+from nornir_imageregistration.scripts._cli_use_error import exit_on_use_error
 
 
 def __CreateArgParser(ExecArgs=None):
@@ -71,13 +71,7 @@ def ParseArgs(ExecArgs=None):
 
 def OnUseError(message):
     """Print usage and exit with error (for invalid args)."""
-    parser = __CreateArgParser()
-    parser.print_usage()
-
-    log = logging.getLogger('RegisterImages')
-    log.error(message)
-
-    sys.exit()
+    exit_on_use_error(__CreateArgParser(), 'RegisterImages', message)
 
 
 def ValidateArgs(Args):

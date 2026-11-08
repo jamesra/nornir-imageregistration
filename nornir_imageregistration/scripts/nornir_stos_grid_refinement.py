@@ -5,7 +5,6 @@ Created on Oct 29, 2018
 '''
 
 import argparse
-import logging
 import os
 import sys
 
@@ -102,17 +101,6 @@ def ParseArgs(ExecArgs=None):
     parser = __CreateArgParser()
 
     return parser.parse_known_args(args=ExecArgs)
-
-
-def OnUseError(message):
-    """Print usage and exit with error (for invalid args)."""
-    parser = __CreateArgParser()
-    parser.print_usage()
-
-    log = logging.getLogger('nornir-stos-grid-refinement')
-    log.error(message)
-
-    sys.exit()
 
 
 def Execute(ExecArgs=None):
