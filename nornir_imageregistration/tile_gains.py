@@ -24,6 +24,9 @@ Guards:
   unrelated tissue) are dropped;
 - a weak temporal prior ties tiles adjacent in capture order, so tiles without usable overlaps (resin, section edge)
   take their gain from their capture-time neighbours instead of staying at 1;
+- overlaps with a very large ratio (a dim tile against a bright one) count for less in the solve, and a rejected overlap
+  is blamed on the tile with fewer agreeing overlaps, so a dying beam's dim tiles do not drag their bright neighbours off;
+- a dim tile, or block of tiles, left without consensus overlaps takes its level from its own overlaps (RC1 120);
 - the section's median gain is anchored at 1.
 
 Strip positions come from the mosaic's tile placements (any ``.mosaic``: ``Stage``, ``Translated_*`` or ``Grid_*``;
@@ -46,8 +49,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import scipy.sparse
+import scipy.sparse.csgraph
 import scipy.sparse.linalg
 from numpy.typing import NDArray
+
+#: A tile with no overlap that agrees with the consensus takes its gain from its own overlaps (the median over the
+#: neighbours' gains) only when that estimate is a clearly dim tile: a misplaced tile compares unrelated tissue and
+#: gives ratios near 1, which must not be believed.
+DIM_FALLBACK_MAX_GAIN = 0.3
 
 #: Directions of an overlap: tile j to the right of tile i, or below it.
 LEFT_RIGHT = 'LR'
@@ -89,6 +98,8 @@ class TileGainResult:
     residual_mad: float  # median absolute residual of the used pairs, log units (0.01 = 1%)
     tiles_without_pairs: list[int]
     measurements: list[OverlapMeasurement] = dataclasses.field(default_factory=list)
+    #: Tiles without consensus overlaps whose gain was taken from their own overlaps (see ``DIM_FALLBACK_MAX_GAIN``).
+    estimated_tiles: list[int] = dataclasses.field(default_factory=list)
 
     def checksum(self) -> str:
         """Stable digest of the gain set (rounded to 1e-5), for provenance and staleness checks."""
@@ -249,6 +260,83 @@ def estimate_shading(measurements: Sequence[OverlapMeasurement]) -> dict[str, fl
     return shading
 
 
+def _largest_component(n: int, a: NDArray, b: NDArray) -> NDArray:
+    """Indices of the tiles in the largest connected set of the graph with edges ``a[k] - b[k]`` over *n* tiles."""
+    graph = scipy.sparse.coo_matrix((np.ones(len(a)), (a, b)), shape=(n, n))
+    count, label = scipy.sparse.csgraph.connected_components(graph, directed=False)
+    return np.flatnonzero(label == int(np.argmax(np.bincount(label, minlength=count))))
+
+
+def _place_detached_blocks(x: NDArray, n: int, ids: Sequence[int], i_idx: NDArray, j_idx: NDArray, c_idx: NDArray,
+                           d: NDArray, weight: NDArray, temporal: NDArray) -> list[int]:
+    """
+    Set the level of each set of tiles that the surviving overlaps do not connect to the main body, in place in ``x``.
+
+    The robust solve leaves such a set at a level only the weak capture-order ties hold: free to drift, or (a few tiles
+    whose overlaps all disagreed with the consensus) left at its neighbours' gain. Its level is better known from the
+    overlaps that were rejected: a dim set (RC1 120: the tail of a dying beam) disagrees with the consensus because it
+    is dim, and each of those overlaps still measures how dim. The set is moved by the median shift that makes its
+    overlaps with the placed tiles agree, accepted when at least two overlaps agree to within ``_BLOCK_SPREAD`` (log
+    units), and, for a single tile, only when that tile is clearly dim (``DIM_FALLBACK_MAX_GAIN``: a misplaced tile
+    compares unrelated tissue and gives ratios near 1). A multi-tile set that cannot be placed that way is moved to its
+    capture-order neighbours' median level. Returns the ids of the tiles that were moved by their overlaps.
+    """
+    used = weight > 0
+    count, label = scipy.sparse.csgraph.connected_components(
+        scipy.sparse.coo_matrix((np.ones(int(used.sum())), (i_idx[used], j_idx[used])), shape=(n, n)), directed=False)
+    sizes = np.bincount(label, minlength=count)
+    placed = label == int(np.argmax(sizes))
+    touching: list[list[int]] = [[] for _ in range(n)]
+    for k in range(len(d)):
+        touching[int(i_idx[k])].append(k)
+        touching[int(j_idx[k])].append(k)
+    moved: list[int] = []
+    pending = [int(c) for c in np.argsort(-sizes, kind='stable') if not placed[label == c].any()]
+    progress = True
+    while pending and progress:
+        progress = False
+        for c in list(pending):
+            members = np.flatnonzero(label == c)
+            shifts: list[float] = []
+            for t in members:
+                for k in touching[int(t)]:
+                    i, j = int(i_idx[k]), int(j_idx[k])
+                    other = j if i == t else i
+                    if not placed[other] or label[other] == c:
+                        continue
+                    # d = x_j - x_i + shading: the shift that makes this overlap agree
+                    shifts.append(float(x[other] - x[t] + (d[k] - x[c_idx[k]] if other == i else x[c_idx[k]] - d[k])))
+            if len(shifts) < 2:
+                continue
+            shift = float(np.median(shifts))
+            spread = float(np.median(np.abs(np.asarray(shifts) - shift)))
+            level = float(np.median(x[members])) + shift
+            if spread > _BLOCK_SPREAD or (len(members) == 1 and np.exp(level - np.median(x[:n][placed])) >= DIM_FALLBACK_MAX_GAIN):
+                continue
+            x[members] += shift
+            placed[members] = True
+            moved.extend(ids[int(t)] for t in members)
+            pending.remove(c)
+            progress = True
+    for c in pending:
+        members = np.flatnonzero(label == c)
+        if len(members) < 2:
+            continue
+        inside = set(members.tolist())
+        neighbours = [int(b if a in inside else a) for a, b in temporal.tolist() if (a in inside) != (b in inside)]
+        neighbours = [t for t in neighbours if placed[t]]
+        target = float(np.median(x[neighbours])) if neighbours else float(np.median(x[:n][placed]))
+        x[members] += target - float(np.median(x[members]))
+    return moved
+
+
+#: Log ratio at which an overlap's weight in the solve falls to 1/sqrt(2): about 7x brighter on one side.
+_LEVERAGE_LOG_RATIO = 2.0
+
+#: Largest median disagreement (log units) among a detached set's own overlaps for its level to be taken from them.
+_BLOCK_SPREAD = 0.5
+
+
 def solve_tile_gains(measurements: Sequence[OverlapMeasurement], tile_ids: Iterable[int],
                      capture_order: Sequence[int] | None = None, temporal_weight: float = 0.01,
                      iterations: int = 12, reject_sigmas: float = 4.0, min_scale: float = 0.01,
@@ -320,8 +408,12 @@ def solve_tile_gains(measurements: Sequence[OverlapMeasurement], tile_ids: Itera
         tw = temporal_weight * temporal_w
         rows = [np.repeat(np.arange(n_pair), 3), np.repeat(np.arange(n_temp) + n_pair, 2)]
         cols = [np.stack([j_idx[active], i_idx[active], c_idx[active]], axis=1).ravel(), temporal[:, ::-1].ravel()]
-        vals = [np.tile([1.0, -1.0, 1.0], n_pair), np.stack([tw, -tw], axis=1).ravel()]
-        rhs = [d[active], np.zeros(n_temp)]
+        # A large log-ratio (a dim tile against a bright one) is weighed down: the dim tile's strips then vary far
+        # more from side to side than a single gain explains, and a few such overlaps must not drag its bright
+        # neighbours away from their own agreeing overlaps (RC1 120: neighbours of a dying beam came out at 2.4).
+        leverage = 1.0 / np.sqrt(1.0 + (d[active] / _LEVERAGE_LOG_RATIO) ** 2)
+        vals = [np.tile([1.0, -1.0, 1.0], n_pair) * np.repeat(leverage, 3), np.stack([tw, -tw], axis=1).ravel()]
+        rhs = [d[active] * leverage, np.zeros(n_temp)]
         r = n_pair + n_temp
         # Gauge (sum of log gains 0; the median anchor is applied afterwards) and the mode convention, both over the
         # tiles that have overlaps only: a row that includes a tile without overlaps is met by moving that tile
@@ -356,9 +448,17 @@ def solve_tile_gains(measurements: Sequence[OverlapMeasurement], tile_ids: Itera
         new_weight = (np.abs(residual) <= reject_sigmas * scale).astype(np.float64)
         # A tile with half or more of its overlaps rejected (at least two) is itself suspect (misplaced, foreign
         # tissue): drop all its overlaps, or the ones that slipped under the threshold keep bending its neighbours.
-        rejected = np.bincount(np.concatenate([i_idx, j_idx]), weights=np.tile(1.0 - new_weight, 2), minlength=n)
-        total = np.bincount(np.concatenate([i_idx, j_idx]), minlength=n)
-        suspect = (rejected >= 2) & (rejected >= total / 2)
+        # A rejected overlap is blamed on the tile with fewer agreeing overlaps: a tile whose other neighbours agree
+        # is not suspect because a dim or misplaced neighbour disagrees (RC1 120: bright tiles beside a dying beam lost
+        # all their good overlaps and were left at a gain of 2.4).
+        both = np.concatenate([i_idx, j_idx])
+        rejected = np.bincount(both, weights=np.tile(1.0 - new_weight, 2), minlength=n)
+        total = np.bincount(both, minlength=n)
+        agreeing = total - rejected
+        pair_rejected = 1.0 - new_weight
+        blamed = (np.bincount(i_idx, weights=pair_rejected * (agreeing[i_idx] <= agreeing[j_idx]), minlength=n) +
+                  np.bincount(j_idx, weights=pair_rejected * (agreeing[j_idx] <= agreeing[i_idx]), minlength=n))
+        suspect = (blamed >= 2) & (blamed >= total / 2)
         new_weight[suspect[i_idx] | suspect[j_idx]] = 0.0
         steps = x[temporal[:, 1]] - x[temporal[:, 0]]
         new_temporal_w = 1.0 / np.sqrt(1.0 + (steps / temporal_scale) ** 2)
@@ -369,7 +469,14 @@ def solve_tile_gains(measurements: Sequence[OverlapMeasurement], tile_ids: Itera
     used = weight > 0
     with_pairs = set(i_idx[used].tolist()) | set(j_idx[used].tolist())
     anchor_set = sorted(with_pairs) or list(range(n))
-    log_gain = x[:n] - float(np.median(x[:n][anchor_set]))
+    estimated: list[int] = []
+    if with_pairs:
+        estimated = _place_detached_blocks(x, n, ids, i_idx, j_idx, c_idx, d, weight, temporal)
+        main = _largest_component(n, i_idx[used], j_idx[used])
+        anchor = float(np.median(x[:n][main]))
+    else:
+        anchor = float(np.median(x[:n][anchor_set]))
+    log_gain = x[:n] - anchor
     residual = d - (x[j_idx] - x[i_idx] + x[c_idx]) if len(meas) else np.zeros(0)
     return TileGainResult(
         gains={t: float(np.exp(log_gain[index[t]])) for t in ids},
@@ -379,7 +486,8 @@ def solve_tile_gains(measurements: Sequence[OverlapMeasurement], tile_ids: Itera
         pairs_skipped=int(skipped),
         residual_mad=float(np.median(np.abs(residual[used]))) if used.any() else float('nan'),
         tiles_without_pairs=[t for t in ids if index[t] not in with_pairs],
-        measurements=list(meas))
+        measurements=list(meas),
+        estimated_tiles=estimated)
 
 
 def compute_tile_gains(placements: Mapping[int, TilePlacement], read_tile: Callable[[int], NDArray], downsample: float,

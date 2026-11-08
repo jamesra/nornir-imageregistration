@@ -142,6 +142,65 @@ class TestTileGains(unittest.TestCase):
 
 
 
+class TestDimRunBesideBrightTiles(unittest.TestCase):
+    """RC1 section 120: a dying beam leaves a run of tiles whose strips vary far more across the tile than one gain fits.
+
+    Built from overlap measurements directly: the dim tiles fall off 4x from their left edge to their right, so the
+    overlap on one side suggests a gain 4x lower than on the other, and neither fits the bright neighbours' ratios.
+    """
+
+    ROWS, COLS = 12, 12
+    DIM = frozenset(range(75, 79))  # column 6, rows 3-6 of 12 (capture order is column-major)
+    TRUE = 0.06
+
+    def solve(self):
+        rng = np.random.default_rng(3)
+        ids = list(range(self.ROWS * self.COLS))
+        gain = {t: (self.TRUE if t in self.DIM else 1.0) for t in ids}
+        measurements = []
+        for c in range(self.COLS):
+            for r in range(self.ROWS):
+                t = c * self.ROWS + r
+                for dc, dr, direction in ((1, 0, tile_gains.LEFT_RIGHT), (0, 1, tile_gains.TOP_BOTTOM)):
+                    if c + dc >= self.COLS or r + dr >= self.ROWS:
+                        continue
+                    u = (c + dc) * self.ROWS + r + dr
+                    lr = direction == tile_gains.LEFT_RIGHT
+                    f_i = 1.6 if (lr and t in self.DIM) else 1.0
+                    f_j = 0.4 if (lr and u in self.DIM) else 1.0
+                    tissue = 1000.0 * np.exp(0.01 * rng.standard_normal())
+                    measurements.append(tile_gains.OverlapMeasurement(
+                        t, u, direction, tissue * gain[t] * f_i,
+                        tissue * gain[u] * f_j * np.exp(0.01 * rng.standard_normal()), 10000))
+        centres = {t: ((t % self.ROWS) * 3000.0, (t // self.ROWS) * 3000.0) for t in ids}
+        return tile_gains.solve_tile_gains(measurements, ids, capture_order=ids, positions=centres)
+
+    def test_bright_neighbours_keep_their_gain(self):
+        """Overlaps with the dim run disagree; the bright tiles beside it must stay with their own agreeing overlaps."""
+        result = self.solve()
+        bright = np.array([g for t, g in result.gains.items() if t not in self.DIM])
+        self.assertTrue(0.8 < bright.min() and bright.max() < 1.25, f"{bright.min():.3f}..{bright.max():.3f}")
+
+    def test_dim_run_is_estimated_as_dim(self):
+        result = self.solve()
+        for t in self.DIM:
+            self.assertTrue(0.03 < result.gains[t] < 0.15, f"tile {t}: {result.gains[t]:.4f}")
+
+    def test_detached_block_has_a_bounded_level(self):
+        """A block the overlaps cannot connect (a blank column between) stays near its capture neighbours."""
+        placements, tiles = make_section(6, 8, lambda t, r, c: 1.0 if c < 4 else 0.5)
+        for t in range(24, 30):  # column 4 blank: the two halves share no overlap
+            tiles[t] = np.zeros((TILE, TILE))
+        result = tile_gains.compute_tile_gains(placements, tiles.__getitem__, 1, low=50, high=1e9)
+        gains = np.array(list(result.gains.values()))
+        self.assertTrue(0.1 < gains.min() and gains.max() < 10.0, f"{gains.min():.3g}..{gains.max():.3g}")
+
+    def test_one_dim_tile_among_agreeing_ones_is_still_a_gain_not_an_outlier(self):
+        placements, tiles = make_section(6, 8, lambda t, r, c: 0.1 if t == 20 else 1.0)
+        result = tile_gains.compute_tile_gains(placements, tiles.__getitem__, 1, low=0.5, high=1e9)
+        self.assertLess(abs(np.log(result.gains[20] / 0.1)), 0.3)
+
+
 class TestStampGainPng(unittest.TestCase):
 
     def test_gain_goes_into_the_chunk_and_pixels_are_untouched(self):
