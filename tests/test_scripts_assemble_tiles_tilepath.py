@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import numpy as np
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
@@ -82,6 +83,28 @@ class TestAssembleTilesTilePath(unittest.TestCase):
     def test_tilepath_defaults_to_none(self):
         args, _ = assemble_tiles.ParseArgs(['-i', 'in.mosaic', '-o', 'out.png'])
         self.assertIsNone(args.tilepath)
+
+    def test_saves_assembled_image_not_image_mask_tuple(self):
+        """AssembleImage returns (image, mask); SaveImage must get the image array alone."""
+        image = np.full((4, 6), 0.5, dtype=np.float32)
+        mask = np.ones((4, 6), dtype=bool)
+        tileset = mock.Mock()
+        tileset.AssembleImage.return_value = (image, mask)
+        with tempfile.TemporaryDirectory() as tmp:
+            mosaic_path = os.path.join(tmp, 'in.mosaic')
+            with open(mosaic_path, 'w'):
+                pass
+            output_path = os.path.join(tmp, 'out.png')
+            with mock.patch.object(assemble_tiles.nornir_imageregistration.Mosaic, 'LoadFromMosaicFile'), \
+                    mock.patch.object(assemble_tiles.nornir_imageregistration.mosaic_tileset, 'CreateFromMosaic',
+                                      return_value=tileset), \
+                    mock.patch.object(assemble_tiles.nornir_imageregistration, 'SaveImage') as save, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                assemble_tiles.Execute(['-i', mosaic_path, '-o', output_path])
+        save.assert_called_once()
+        saved_path, saved_image = save.call_args.args
+        self.assertEqual(saved_path, output_path)
+        self.assertIs(saved_image, image)
 
 
 if __name__ == '__main__':

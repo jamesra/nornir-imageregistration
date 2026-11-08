@@ -116,7 +116,7 @@ def Execute(ExecArgs=None):
                                                                              image_to_source_space_scale=1.0 / Args.scalar)
     mosaicTileset.TranslateToZeroOrigin()
 
-    mosaicImage = mosaicTileset.AssembleImage(target_space_scale=Args.scalar)
+    (mosaicImage, _mask) = mosaicTileset.AssembleImage(target_space_scale=Args.scalar)
 
     if not Args.outputpath.endswith('.png'):
         Args.outputpath += '.png'
