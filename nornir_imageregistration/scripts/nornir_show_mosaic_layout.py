@@ -98,7 +98,7 @@ def ValidateArgs(Args):
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
 
     tile_path = GenerateAbsOrMosaicRelativePath(Args.tilepath, Args.inputpath)
-    if not os.path.exists(os.path.dirname(tile_path)):
+    if not os.path.isdir(tile_path):
         OnUseError("Tile path not found: " + tile_path)
 
 

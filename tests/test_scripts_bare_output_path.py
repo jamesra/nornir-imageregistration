@@ -116,6 +116,7 @@ class TestScriptsBareOutputPath(unittest.TestCase):
             try:
                 with open('in.mosaic', 'w'):
                     pass
+                os.makedirs('tiles')
                 out = os.path.join(*parts, 'out.svg')
                 show_mosaic_layout.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath=out,
                                                           tilepath=os.path.join(example_dir, 'tiles')))
