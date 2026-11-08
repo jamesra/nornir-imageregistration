@@ -95,8 +95,7 @@ def ValidateArgs(Args):
         Args.outputpath += '.svg'
 
     output_file = GenerateAbsOrMosaicRelativePath(Args.outputpath, Args.inputpath)
-    if not os.path.exists(os.path.dirname(output_file)):
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
 
     tile_path = GenerateAbsOrMosaicRelativePath(Args.tilepath, Args.inputpath)
     if not os.path.exists(os.path.dirname(tile_path)):

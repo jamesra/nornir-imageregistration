@@ -17,6 +17,7 @@ import nornir_imageregistration.scripts.nornir_assemble as assemble
 import nornir_imageregistration.scripts.nornir_assemble_tiles as assemble_tiles
 import nornir_imageregistration.scripts.nornir_rotate_translate as rotate_translate
 import nornir_imageregistration.scripts.nornir_scaletransform as scaletransform
+import nornir_imageregistration.scripts.nornir_show_mosaic_layout as show_mosaic_layout
 import nornir_imageregistration.scripts.nornir_slicetomosaic as slicetomosaic
 import nornir_imageregistration.scripts.nornir_stos_grid_refinement as stos_grid_refinement
 import nornir_imageregistration.scripts.nornir_translatemosaic as translatemosaic
@@ -102,6 +103,26 @@ class TestScriptsBareOutputPath(unittest.TestCase):
                     stos_grid_refinement.Execute(['-i', 'a.stos', '-o', out])
                 self.assertEqual(refine.call_count, 2)
                 self.assertEqual(refine.call_args.args[1], out)
+            finally:
+                os.chdir(self._tmp.name)
+
+    @settings(max_examples=25, deadline=None)
+    @given(parts=_dir_parts)
+    @example(parts=[])
+    @example(parts=['new', 'deeper'])
+    def test_show_mosaic_layout_creates_relative_output_directory(self, parts: list[str]):
+        with tempfile.TemporaryDirectory() as example_dir:
+            os.chdir(example_dir)
+            try:
+                with open('in.mosaic', 'w'):
+                    pass
+                out = os.path.join(*parts, 'out.svg')
+                show_mosaic_layout.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath=out,
+                                                          tilepath=os.path.join(example_dir, 'tiles')))
+                self.assertTrue(os.path.isdir(os.path.dirname(os.path.abspath(out))))
+                self.assertFalse(os.path.exists(out))
+                show_mosaic_layout.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath=out,
+                                                          tilepath=os.path.join(example_dir, 'tiles')))
             finally:
                 os.chdir(self._tmp.name)
 
