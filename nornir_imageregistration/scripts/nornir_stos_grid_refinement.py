@@ -113,8 +113,7 @@ def Execute(ExecArgs=None):
     stosArgs = StosOverrideArgs(Args)
     inputStos = stosArgs.MergeStosAndArgs(Args)
 
-    if not os.path.exists(os.path.dirname(Args.outputpath)):
-        os.makedirs(os.path.dirname(Args.outputpath))
+    os.makedirs(os.path.dirname(os.path.abspath(Args.outputpath)), exist_ok=True)
 
     nornir_imageregistration.local_distortion_correction.RefineStosFile(inputStos,
                                                                         Args.outputpath,

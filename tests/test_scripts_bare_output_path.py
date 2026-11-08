@@ -18,6 +18,7 @@ import nornir_imageregistration.scripts.nornir_assemble_tiles as assemble_tiles
 import nornir_imageregistration.scripts.nornir_rotate_translate as rotate_translate
 import nornir_imageregistration.scripts.nornir_scaletransform as scaletransform
 import nornir_imageregistration.scripts.nornir_slicetomosaic as slicetomosaic
+import nornir_imageregistration.scripts.nornir_stos_grid_refinement as stos_grid_refinement
 import nornir_imageregistration.scripts.nornir_translatemosaic as translatemosaic
 
 _dir_parts = st.lists(st.text(alphabet='abcdefghijklmnopqrstuvwxyz0123456789_', min_size=1, max_size=12),
@@ -80,6 +81,27 @@ class TestScriptsBareOutputPath(unittest.TestCase):
                 self.assertTrue(os.path.isdir(os.path.dirname(os.path.abspath(out))))
                 self.assertFalse(os.path.exists(out))
                 translatemosaic.ValidateArgs(Namespace(inputpath='in.mosaic', outputpath=out, tilepath=example_dir))
+            finally:
+                os.chdir(self._tmp.name)
+
+    @settings(max_examples=25, deadline=None)
+    @given(parts=_dir_parts)
+    @example(parts=[])
+    @example(parts=['new', 'deeper'])
+    def test_stos_grid_refinement_creates_relative_output_directory(self, parts: list[str]):
+        with tempfile.TemporaryDirectory() as example_dir:
+            os.chdir(example_dir)
+            try:
+                out = os.path.join(*parts, 'out.stos')
+                with mock.patch.object(stos_grid_refinement, 'StosOverrideArgs'), \
+                        mock.patch.object(stos_grid_refinement.nornir_imageregistration.local_distortion_correction,
+                                          'RefineStosFile') as refine:
+                    stos_grid_refinement.Execute(['-i', 'a.stos', '-o', out])
+                    self.assertTrue(os.path.isdir(os.path.dirname(os.path.abspath(out))))
+                    self.assertFalse(os.path.exists(out))
+                    stos_grid_refinement.Execute(['-i', 'a.stos', '-o', out])
+                self.assertEqual(refine.call_count, 2)
+                self.assertEqual(refine.call_args.args[1], out)
             finally:
                 os.chdir(self._tmp.name)
 
