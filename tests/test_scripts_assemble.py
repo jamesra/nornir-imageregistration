@@ -4,10 +4,13 @@ Covers what the CLI does on HEAD and is correct: the validation exits, ``-scale`
 folder and scale handed to ``CreateFromMosaic``, and which arrays reach ``SaveImage`` (the script
 unpacks the ``(image, mask)`` tuple from ``AssembleImage``; nornir-assemble-tiles did not).
 
+``-tilepath`` was declared ``type=str, default=True`` (nornir-review#279): omitting it checked
+``os.path.exists(True)`` (file descriptor 1) and handed ``image_folder=True`` to
+``CreateFromMosaic``, whose ``os.path.join(True, ...)`` raised ``TypeError``. It now defaults to
+``None`` and falls back to the mosaic's folder, as translatemosaic and assemble-tiles do.
+
 Not pinned here, because the script is wrong today and a category 13 change must fix it first:
-``-tilepath`` is declared ``type=str, default=True`` (nornir-review#279; the siblings
-translatemosaic and assemble-tiles now default to ``None`` and fall back to the mosaic's folder),
-and a bare output filename makes ``ValidateArgs`` call ``os.makedirs('')``.
+a bare output filename makes ``ValidateArgs`` call ``os.makedirs('')`` (nornir-review#280).
 """
 import contextlib
 import io
@@ -112,14 +115,31 @@ class TestAssembleScript(unittest.TestCase):
         self.assertEqual(run.tileset.AssembleImage.call_args.kwargs['target_space_scale'], scale)
 
     @settings(max_examples=25, deadline=None)
-    @given(tile_dir_name=_dir_names)
+    @given(tile_dir_name=st.one_of(st.none(), _dir_names))
+    @example(tile_dir_name=None)
     @example(tile_dir_name='tiles')
-    def test_given_tile_folder_reaches_create_from_mosaic(self, tile_dir_name: str):
-        tile_dir = os.path.join(self.tmp, 'tiles_' + tile_dir_name)
-        os.makedirs(tile_dir, exist_ok=True)
+    def test_tile_folder_is_given_directory_or_mosaic_directory(self, tile_dir_name: str | None):
+        if tile_dir_name is None:
+            extra: tuple[str, ...] = ()
+            expected = self.tmp
+        else:
+            expected = os.path.join(self.tmp, 'tiles_' + tile_dir_name)
+            os.makedirs(expected, exist_ok=True)
+            extra = ('-p', expected)
         with _stubbed_library() as run:
-            assemble.Execute(self._argv('-p', tile_dir))
-        self.assertEqual(run.create.call_args.args[1], tile_dir)
+            assemble.Execute(self._argv(*extra))
+        self.assertEqual(run.create.call_args.args[1], expected)
+
+    def test_tilepath_defaults_to_none(self):
+        args, _ = assemble.ParseArgs(['-i', 'in.mosaic', '-o', 'out.png'])
+        self.assertIsNone(args.tilepath)
+
+    def test_bare_mosaic_filename_uses_working_directory(self):
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.tmp)
+        args, _ = assemble.ParseArgs(['-i', 'in.mosaic', '-o', os.path.join(self.tmp, 'out.png')])
+        assemble.ValidateArgs(args)
+        self.assertEqual(os.path.normcase(args.tilepath), os.path.normcase(os.getcwd()))
 
     def test_image_and_mask_are_saved_not_the_tuple(self):
         out = os.path.join(self.tmp, 'out.png')

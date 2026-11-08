@@ -45,8 +45,8 @@ def __CreateArgParser(ExecArgs=None):
                         action='store',
                         required=False,
                         type=str,
-                        default=True,
-                        help='Path to directory containing tiles listed in mosaic',
+                        default=None,
+                        help='Path to directory containing tiles listed in mosaic (default: the mosaic file\'s directory)',
                         dest='tilepath'
                         )
     parser.add_argument('-cuda', '-c',
@@ -75,15 +75,18 @@ def OnUseError(message):
 
 
 def ValidateArgs(Args):
+    """Validate parsed args (paths exist, etc.); exits on failure. A missing tilepath becomes the mosaic's directory."""
     if not os.path.exists(Args.inputpath):
         OnUseError("Input mosaic file not found: " + Args.inputpath)
 
     if not os.path.exists(os.path.dirname(Args.outputpath)):
         os.makedirs(os.path.dirname(Args.outputpath), exist_ok=True)
 
-    if not Args.tilepath is None:
-        if not os.path.exists(Args.tilepath):
-            OnUseError("Tile path not found: " + Args.tilepath)
+    if Args.tilepath is None:
+        Args.tilepath = os.path.dirname(os.path.abspath(Args.inputpath))
+
+    if not os.path.exists(Args.tilepath):
+        OnUseError("Tile path not found: " + Args.tilepath)
 
 
 def ReportFileWriteSuccessOrFailure(filepath):
