@@ -297,6 +297,20 @@ def _build_scipy_linear_nd_interpolator(
         return None
 
 
+_scipy_interpolators_only: bool = False
+
+
+def use_scipy_interpolators_in_this_process() -> None:
+    """Build every LinearNDInterpolator of this process with SciPy (host), never CuPy.
+
+    Process-pool workers run NumPy by design (the parent uploads their results). Without this each worker that can
+    import CuPy opens its own CUDA context and holds a device triangulation, so GPU memory grows with the worker
+    count until the card is full (RC3 Mosaic grid prewarp, RTX 4500 Ada 24 GB).
+    """
+    global _scipy_interpolators_only
+    _scipy_interpolators_only = True
+
+
 def _build_linear_nd_interpolator(
         target_points: NDArray[np.floating],
         source_values: NDArray[np.floating],
@@ -304,7 +318,7 @@ def _build_linear_nd_interpolator(
         force_scipy: bool = False,
 ) -> tuple[Any | None, bool]:
     """Build GPU LinearNDInterpolator when possible; fall back to SciPy Qhull on degenerate CuPy triangulation."""
-    if force_scipy or cuLinearNDInterpolator is None:
+    if force_scipy or _scipy_interpolators_only or cuLinearNDInterpolator is None:
         return _build_scipy_linear_nd_interpolator(target_points, source_values), True
 
     try:

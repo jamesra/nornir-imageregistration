@@ -13,6 +13,7 @@ regularization, and ``NORNIR_REFINE_*`` runtime config live in
 """
 import gc
 import logging
+import multiprocessing
 import os
 import enum
 import copy
@@ -434,6 +435,11 @@ def _prewarp_tile_for_grid_refine(
     Mirrors legacy ir-refine-grid ``prewarp_tiles=true``: every pass re-renders each
     tile so mesh-vertex neighborhoods can be sampled on a common mosaic grid.
     """
+    if multiprocessing.parent_process() is not None:
+        # A process-pool worker: it runs NumPy, so it must not open a CUDA context and build device triangulations.
+        from nornir_imageregistration.transforms.gridtransform import use_scipy_interpolators_in_this_process
+        use_scipy_interpolators_in_this_process()
+
     full_source_image = cast(
         NDArray[np.floating],
         nornir_imageregistration.ForceGrayscale(
