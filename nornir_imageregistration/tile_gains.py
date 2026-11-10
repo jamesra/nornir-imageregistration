@@ -278,7 +278,7 @@ def _place_detached_blocks(x: NDArray, n: int, ids: Sequence[int], i_idx: NDArra
     is dim, and each of those overlaps still measures how dim. The set is moved by the median shift that makes its
     overlaps with the placed tiles agree, accepted when at least two overlaps agree to within ``_BLOCK_SPREAD`` (log
     units), and, for a single tile, only when that tile is clearly dim (``DIM_FALLBACK_MAX_GAIN``: a misplaced tile
-    compares unrelated tissue and gives ratios near 1). A multi-tile set that cannot be placed that way is moved to its
+    compares unrelated tissue and gives ratios near 1). A tile or set that cannot be placed that way is moved to its
     capture-order neighbours' median level. Returns the ids of the tiles that were moved by their overlaps.
     """
     used = weight > 0
@@ -318,15 +318,26 @@ def _place_detached_blocks(x: NDArray, n: int, ids: Sequence[int], i_idx: NDArra
             moved.extend(ids[int(t)] for t in members)
             pending.remove(c)
             progress = True
+    # What no overlap places (one tile or several) takes its capture-order neighbours' level, working outward from the
+    # placed tiles. A lone tile is included: with all its overlaps rejected, only the weak capture-order ties hold it,
+    # and those fade as it drifts (RC3 516: two such tiles came out at 5e-6 and 56 while their raw medians were normal).
+    progress = True
+    while pending and progress:
+        progress = False
+        for c in list(pending):
+            members = np.flatnonzero(label == c)
+            inside = set(members.tolist())
+            neighbours = [int(b if a in inside else a) for a, b in temporal.tolist() if (a in inside) != (b in inside)]
+            neighbours = [t for t in neighbours if placed[t]]
+            if not neighbours:
+                continue
+            x[members] += float(np.median(x[neighbours])) - float(np.median(x[members]))
+            placed[members] = True
+            pending.remove(c)
+            progress = True
     for c in pending:
         members = np.flatnonzero(label == c)
-        if len(members) < 2:
-            continue
-        inside = set(members.tolist())
-        neighbours = [int(b if a in inside else a) for a, b in temporal.tolist() if (a in inside) != (b in inside)]
-        neighbours = [t for t in neighbours if placed[t]]
-        target = float(np.median(x[neighbours])) if neighbours else float(np.median(x[:n][placed]))
-        x[members] += target - float(np.median(x[members]))
+        x[members] += float(np.median(x[:n][placed])) - float(np.median(x[members]))
     return moved
 
 

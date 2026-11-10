@@ -1,4 +1,5 @@
 """Per-tile brightness gains (nornir_imageregistration.tile_gains) on synthetic sections with known gains."""
+import os
 import unittest
 
 import numpy as np
@@ -199,6 +200,28 @@ class TestDimRunBesideBrightTiles(unittest.TestCase):
         placements, tiles = make_section(6, 8, lambda t, r, c: 0.1 if t == 20 else 1.0)
         result = tile_gains.compute_tile_gains(placements, tiles.__getitem__, 1, low=0.5, high=1e9)
         self.assertLess(abs(np.log(result.gains[20] / 0.1)), 0.3)
+
+
+class TestTilesWithNoUsableOverlap(unittest.TestCase):
+    """RC3 section 516 (a partial section with holes): the overlap strips of a few tiles disagree with every neighbour."""
+
+    FIXTURE = os.path.join(os.path.dirname(__file__), 'fixtures', 'rc3_516_overlaps.npz')
+
+    def test_a_tile_with_all_overlaps_rejected_takes_its_neighbours_level_not_a_runaway(self):
+        """Tiles 513 and 614 have normal raw brightness but all four overlaps rejected; they came out at 5e-6 and 56."""
+        z = np.load(self.FIXTURE)
+        measurements = [tile_gains.OverlapMeasurement(
+            int(a), int(b), tile_gains.LEFT_RIGHT if lr else tile_gains.TOP_BOTTOM, float(si), float(sj), int(p))
+            for a, b, lr, si, sj, p in zip(z['tile_i'], z['tile_j'], z['left_right'], z['stat_i'], z['stat_j'],
+                                           z['pixels'])]
+        ids = [int(t) for t in z['ids']]
+        centres = {t: (float(y), float(x)) for t, y, x in zip(ids, z['centre_y'], z['centre_x'])}
+        result = tile_gains.solve_tile_gains(measurements, ids, capture_order=ids, positions=centres)
+        gains = result.gains
+        self.assertTrue(0.4 < min(gains.values()) and max(gains.values()) < 2.5,
+                        f"{min(gains.values()):.3g}..{max(gains.values()):.3g}")
+        for tile in (513, 614):
+            self.assertTrue(0.5 < gains[tile] < 2.0, f"tile {tile}: {gains[tile]:.4g}")
 
 
 class TestStampGainPng(unittest.TestCase):
