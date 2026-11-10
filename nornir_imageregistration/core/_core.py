@@ -3,7 +3,7 @@ scipy image arrays are indexed [y,x]
 """
 
 from collections import deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 import bisect
 import math
 import multiprocessing
@@ -487,10 +487,13 @@ def ResizeImage(image: NDArray, scalar: float | Iterable[float] | NDArray[np.flo
 def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False,
                         Bpp: int | None = None, Invert: bool = False,
                         MinMax: tuple[float, float] | None = None,
-                        Gamma: float | None = None):
+                        Gamma: float | None = None, Gain: float = 1.0):
     """
     Converts a single image according to the passed parameters (NumPy or CuPy, matching input backend).
     Image returned will match the dtype of the loaded image
+
+    ``Gain`` divides the pixel values (a tile's brightness gain) before ``MinMax`` stretches them; values pushed past
+    the range are clipped by that stretch.
 
     File loads always stay on NumPy so process-pool convert workers never upload
     per-tile arrays to the GPU under a global CuPy setting.
@@ -525,6 +528,10 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
 
         image = image.astype(
             working_dtype) / max_possible_int_val  # Always use float32 to prevent overflow errors.  We can downconvert later
+
+    if Gain != 1.0:
+        image = image / Gain
+        NeedsClip = True
 
     if Flip is not None and Flip:
         image = xp.flip(image, 0)
@@ -578,14 +585,15 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
 
 def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: bool = False, Flop: bool = False,
                               InputBpp: int | None = None, OutputBpp: int | None = None,
-                              Invert=False, MinMax=None, Gamma=None):
+                              Invert=False, MinMax=None, Gamma=None, Gain: float = 1.0):
     image = _ConvertSingleImage(input_image_param,
                                 Flip=Flip,
                                 Flop=Flop,
                                 Bpp=InputBpp,
                                 Invert=Invert,
                                 MinMax=MinMax,
-                                Gamma=Gamma)
+                                Gamma=Gamma,
+                                Gain=Gain)
 
     if OutputBpp is None:
         OutputBpp = InputBpp
@@ -607,9 +615,10 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
                         bDeleteOriginal: bool = False, RightLeftShift: int | None = None,
                         AndValue: int | None = None, MinMax: tuple[float, float] | None = None,
                         Gamma: float | None = None, progress_name: str | None = None,
-                        progress_task_key: str | None = None):
+                        progress_task_key: str | None = None, SourceGains: Mapping[str, float] | None = None):
     """
     The key and value in the dictionary have the full path of an image to convert.
+    SourceGains maps an input path to the gain its pixel values are divided by before the MinMax stretch.
     MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
     RightLeftShift is a tuple containing a right then left then return to center shift which should be done to remove useless bits from the data
     I do not use an and because I do not calculate ImageMagick's quantum size yet.
@@ -652,7 +661,8 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
                              OutputBpp=OutputBpp,
                              Invert=Invert,
                              MinMax=MinMax,
-                             Gamma=Gamma)
+                             Gamma=Gamma,
+                             Gain=1.0 if SourceGains is None else SourceGains.get(input_image, 1.0))
         tasks.append((task, input_image))
 
     task_key = progress_task_key or 'ConvertImagesInDict'
