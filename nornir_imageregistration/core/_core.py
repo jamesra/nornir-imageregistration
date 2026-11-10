@@ -487,13 +487,17 @@ def ResizeImage(image: NDArray, scalar: float | Iterable[float] | NDArray[np.flo
 def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = False,
                         Bpp: int | None = None, Invert: bool = False,
                         MinMax: tuple[float, float] | None = None,
-                        Gamma: float | None = None, Gain: float = 1.0):
+                        Gamma: float | None = None, Gain: float = 1.0, UnitRange: bool = False):
     """
     Converts a single image according to the passed parameters (NumPy or CuPy, matching input backend).
     Image returned will match the dtype of the loaded image
 
     ``Gain`` divides the pixel values (a tile's brightness gain) before ``MinMax`` stretches them; values pushed past
     the range are clipped by that stretch.
+
+    ``UnitRange`` returns the result as floats in 0..1 instead of scaling back to the input dtype, so the caller can
+    quantize with a fixed scale (``image_to_uint8`` rescales an integer tile by that tile's own maximum, which differs
+    from tile to tile once gains stop the brightest tiles reaching saturation).
 
     File loads always stay on NumPy so process-pool convert workers never upload
     per-tile arrays to the GPU under a global CuPy setting.
@@ -575,6 +579,9 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
     if Invert is not None and Invert:
         image = 1.0 - image
 
+    if UnitRange:
+        return image
+
     if nornir_imageregistration.IsIntArray(original_dtype) is True:
         image *= max_possible_int_val  # type: ignore[operator]
 
@@ -585,18 +592,24 @@ def _ConvertSingleImage(input_image_param, Flip: bool = False, Flop: bool = Fals
 
 def _ConvertSingleImageToFile(input_image_param, output_filename: str, Flip: bool = False, Flop: bool = False,
                               InputBpp: int | None = None, OutputBpp: int | None = None,
-                              Invert=False, MinMax=None, Gamma=None, Gain: float = 1.0):
-    image = _ConvertSingleImage(input_image_param,
-                                Flip=Flip,
-                                Flop=Flop,
-                                Bpp=InputBpp,
-                                Invert=Invert,
-                                MinMax=MinMax,
-                                Gamma=Gamma,
-                                Gain=Gain)
-
+                              Invert=False, MinMax=None, Gamma=None, Gain: float = 1.0, FixedScale: bool = False):
     if OutputBpp is None:
         OutputBpp = InputBpp
+
+    if FixedScale and OutputBpp == 8:
+        # Gain-first legacy import: the same stretch maps every tile, so 255 is the same raw value in every tile.
+        unit = _ConvertSingleImage(input_image_param, Flip=Flip, Flop=Flop, Bpp=InputBpp, Invert=Invert,
+                                   MinMax=MinMax, Gamma=Gamma, Gain=Gain, UnitRange=True)
+        image = np.rint(np.clip(unit, 0.0, 1.0) * 255.0).astype(np.uint8)
+    else:
+        image = _ConvertSingleImage(input_image_param,
+                                    Flip=Flip,
+                                    Flop=Flop,
+                                    Bpp=InputBpp,
+                                    Invert=Invert,
+                                    MinMax=MinMax,
+                                    Gamma=Gamma,
+                                    Gain=Gain)
 
     (_, ext) = os.path.splitext(output_filename)
     if ext.lower() == '.png':
@@ -618,7 +631,9 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
                         progress_task_key: str | None = None, SourceGains: Mapping[str, float] | None = None):
     """
     The key and value in the dictionary have the full path of an image to convert.
-    SourceGains maps an input path to the gain its pixel values are divided by before the MinMax stretch.
+    SourceGains maps an input path to the gain its pixel values are divided by before the MinMax stretch. Giving it
+    also fixes the 8-bit scale: every tile is quantized with the same 0..1 -> 0..255 mapping, not rescaled by its own
+    maximum.
     MinMax is a tuple [Min,Max] passed to the -level parameter if it is not None
     RightLeftShift is a tuple containing a right then left then return to center shift which should be done to remove useless bits from the data
     I do not use an and because I do not calculate ImageMagick's quantum size yet.
@@ -662,7 +677,8 @@ def ConvertImagesInDict(ImagesToConvertDict, Flip: bool = False, Flop: bool = Fa
                              Invert=Invert,
                              MinMax=MinMax,
                              Gamma=Gamma,
-                             Gain=1.0 if SourceGains is None else SourceGains.get(input_image, 1.0))
+                             Gain=1.0 if SourceGains is None else SourceGains.get(input_image, 1.0),
+                             FixedScale=SourceGains is not None)
         tasks.append((task, input_image))
 
     task_key = progress_task_key or 'ConvertImagesInDict'
