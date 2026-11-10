@@ -134,6 +134,26 @@ def _initialize_fallback_data_structures(model: Any, continuous_ctor: Any) -> No
     model._continuous_transform.InitializeDataStructures()
 
 
+
+def _host_only_process() -> bool:
+    """True in a pool worker that was switched to host (NumPy/SciPy) arrays; it must not touch the GPU."""
+    from nornir_imageregistration.transforms import gridtransform
+    return gridtransform.host_only_process()
+
+
+def _ensure_points_2d(points: NDArray[np.floating]) -> NDArray[np.floating]:
+    """Nx2 points as CuPy, or as NumPy in a host-only worker."""
+    if _host_only_process():
+        return nornir_imageregistration.EnsurePointsAre2DNumpyArray(points)
+    return nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+
+
+def _empty_points(dtype) -> NDArray[np.floating]:
+    """An empty Nx2 result on the backend _ensure_points_2d uses."""
+    xp = np if _host_only_process() else cp
+    return xp.empty((0, 2), dtype=dtype)
+
+
 class GridWithRBFFallback(IDiscreteTransform, IControlPoints, ITransformScaling, ITransformRelativeScaling,
                           ITransformTargetRotation, ITransformTranslation,
                           ITargetSpaceControlPointEdit, IGridTransform, ITriangulatedTargetSpace,
@@ -536,10 +556,10 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         :param ndarray points: [[ControlY, ControlX, MappedY, MappedX],...]
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+        points = _ensure_points_2d(points)
 
         if points.shape[0] == 0:
-            return cp.empty((0, 2), dtype=points.dtype)
+            return _empty_points(points.dtype)
 
         TransformedPoints = self._discrete_transform.Transform(points)
         extrapolate = kwargs.get('extrapolate', True)
@@ -565,7 +585,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         TransformedPoints[invalid_mask] = FixedPoints
 
         # Ensure discrete-transform outputs remain on the GPU when callers expect CuPy arrays.
-        TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
+        TransformedPoints = _ensure_points_2d(TransformedPoints)
         return TransformedPoints
 
     def InverseTransform(self, points: NDArray[np.floating], **kwargs):
@@ -574,10 +594,10 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         :param points:
         """
 
-        points = nornir_imageregistration.EnsurePointsAre2DCuPyArray(points)
+        points = _ensure_points_2d(points)
 
         if points.shape[0] == 0:
-            return cp.empty((0, 2), dtype=points.dtype)
+            return _empty_points(points.dtype)
 
 
         TransformedPoints = self._discrete_transform.InverseTransform(points)
@@ -602,7 +622,7 @@ class GridWithRBFFallback_GPUComponent(IDiscreteTransform, IControlPoints, ITran
         TransformedPoints[invalid_mask] = FixedPoints
 
         # Ensure discrete-transform outputs remain on the GPU when callers expect CuPy arrays.
-        TransformedPoints = nornir_imageregistration.EnsurePointsAre2DCuPyArray(TransformedPoints)
+        TransformedPoints = _ensure_points_2d(TransformedPoints)
         return TransformedPoints
 
     def __init__(self,

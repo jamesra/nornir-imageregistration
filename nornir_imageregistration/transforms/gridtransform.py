@@ -311,6 +311,11 @@ def use_scipy_interpolators_in_this_process() -> None:
     _scipy_interpolators_only = True
 
 
+def host_only_process() -> bool:
+    """True when this process was switched to host (NumPy/SciPy) arrays by use_scipy_interpolators_in_this_process."""
+    return _scipy_interpolators_only
+
+
 def _build_linear_nd_interpolator(
         target_points: NDArray[np.floating],
         source_values: NDArray[np.floating],

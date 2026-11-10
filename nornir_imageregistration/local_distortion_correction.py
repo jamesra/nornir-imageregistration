@@ -436,9 +436,11 @@ def _prewarp_tile_for_grid_refine(
     tile so mesh-vertex neighborhoods can be sampled on a common mosaic grid.
     """
     if multiprocessing.parent_process() is not None:
-        # A process-pool worker: it runs NumPy, so it must not open a CUDA context and build device triangulations.
+        # A process-pool worker: it runs NumPy, so it must not open a CUDA context, move points to the GPU or build
+        # device triangulations (RC3 516: ~128 workers filled a 24 GB card). Switch this process to host arrays.
         from nornir_imageregistration.transforms.gridtransform import use_scipy_interpolators_in_this_process
         use_scipy_interpolators_in_this_process()
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.numpy)
 
     full_source_image = cast(
         NDArray[np.floating],
