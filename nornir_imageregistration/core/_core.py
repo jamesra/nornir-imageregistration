@@ -2551,7 +2551,8 @@ def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, v
     """
     Loads an image file and returns an ndarray of dtype
     :param dtype dtype: Numpy datatype of returned array. If the type is a float then the returned array is in the range 0 to 1.  Otherwise it is whatever pillow and numpy decide.
-    :param value_scale: For integer images loaded as float, divide by this fixed value instead of the image's own maximum
+    :param value_scale: For integer images loaded as float, divide by this fixed value instead of the dtype's maximum
+        (255 for 8-bit, 65535 for 16-bit)
     :param crush_gain: With value_scale, apply the gain in the image's ``nornir_crush`` chunk (see
         ``noise_crush.unit_gain_correction``)
     """
@@ -2584,7 +2585,10 @@ def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, v
                         else:
                             image = image.astype(dtype)
 
-                        max_val = image.max() if value_scale is None else value_scale
+                        # The dtype's maximum, not this image's: tiles of one mosaic must share a scale, or each
+                        # is brightened by 255 / its own max when assembled (RC3 516, 2026-11-10; image.max()
+                        # was used from 83e125c, 2021-01-22).
+                        max_val = max_pixel_val if value_scale is None else value_scale
                         if max_val != 0:
                             image /= max_val
 
@@ -2643,7 +2647,8 @@ def LoadImage(ImageFullPath: str,
     :param MaxDimension: Limit the largest dimension of the returned image to this size.  Downsample if necessary.
     :param backend: If "numpy", return a NumPy array (error if conversion fails). If "cupy", return a CuPy array (error if CuPy not available). If None, use the active computation backend (current behaviour).
     :param value_scale: When an integer image is loaded as a float dtype, divide by this fixed value instead of the
-        image's own maximum, so tiles that share a value unit (crushed codes) keep it. None keeps the per-image maximum.
+        dtype's maximum (255 for 8-bit, 65535 for 16-bit), so tiles that share a value unit (crushed codes) keep it.
+        None uses the dtype's maximum, so tiles of a mosaic always share one scale.
     :param crush_gain: With value_scale, correct a crushed tile by the gain recorded in its ``nornir_crush`` chunk.
     :returns: Loaded image.  Masked areas and extrema pixel values are replaced with gaussian noise matching the median and std. dev. of the unmasked image.
     :rtype: ndimage

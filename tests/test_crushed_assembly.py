@@ -60,8 +60,20 @@ class TestCrushedAssembly(unittest.TestCase):
         path = os.path.join(self.tile_dir, '003.png')
         fixed = nornir_imageregistration.LoadImage(path, dtype=np.float32, value_scale=255, backend='numpy')
         np.testing.assert_allclose(fixed * 255, self.tiles['003.png'], atol=1e-3)
-        stretched = nornir_imageregistration.LoadImage(path, dtype=np.float32, backend='numpy')
-        self.assertAlmostEqual(float(stretched.max()), 1.0)  # unchanged default: per-image maximum
+        default = nornir_imageregistration.LoadImage(path, dtype=np.float32, backend='numpy')
+        # Default: the dtype's maximum (255), not the image's own (40) as from 2021-01 to 2026-11 (RC3 516).
+        np.testing.assert_allclose(default * 255, self.tiles['003.png'], atol=1e-3)
+
+    def test_uncrushed_assembly_keeps_each_tile_on_one_scale(self) -> None:
+        """Without tile_value_scale (legacy filters) tiles with different maxima keep their values (RC3 516)."""
+        mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(self.mosaic_path)
+        tileset = nornir_imageregistration.mosaic_tileset.CreateFromMosaic(
+            mosaic, self.tile_dir, image_to_source_space_scale=1)
+        image, _mask = tileset.AssembleImage(FixedRegion=None, target_space_scale=1.0)
+        for name, (x0, y0) in zip(sorted(self.tiles), _ORIGINS):
+            got = np.asarray(image[y0 + 2:y0 + _TILE - 2, x0 + 2:x0 + _TILE - 2], dtype=np.float64) * 255
+            expected = self.tiles[name][2:-2, 2:-2].astype(np.float64)
+            self.assertLess(abs(got.mean() - expected.mean()), 0.5, name)
 
     def test_assembled_codes_match_the_tiles(self) -> None:
         mosaic = nornir_imageregistration.Mosaic.LoadFromMosaicFile(self.mosaic_path)

@@ -40,7 +40,7 @@ class Tile:
     _image_size: NDArray | None  # Size of the image.  It may not match the dimensions of the Source Space if the image is downsampled.
     _fftimage: NDArray | None  # The FFT of the padded image data
     _imagepath: str | None  # The path to the image data, may be None if an image array is passed to constructor
-    _value_scale: float | None  # Fixed divisor for integer pixels (crushed codes, gain applied); None divides by each image's maximum
+    _value_scale: float | None  # Fixed divisor for integer pixels (crushed codes, gain applied); None divides by the dtype's maximum
 
     @property
     def MappedBoundingBox(self) -> nornir_imageregistration.Rectangle:
@@ -262,9 +262,9 @@ class Tile:
         :param float image_to_source_space_scale: Scalar for the transform source space coordinates.  Must match the change in scale of input images relative to the transform source space coordinates.  So if downsampled by
         4 images are used and the transform is at full-resolution as is customary this value should be 0.25.
         Calculated to be correct if None.  Specifying is an optimization to reduce I/O of reading image files to calculate.
-        :param value_scale: Divide integer pixels by this fixed value when loading instead of the image's own maximum,
+        :param value_scale: Divide integer pixels by this fixed value when loading instead of the dtype's maximum,
         so every tile keeps the same value unit (crushed codes). The tile's gain from its ``nornir_crush`` chunk is
-        applied too, so assembled codes are gain-corrected with gain 1. None keeps the per-image maximum.
+        applied too, so assembled codes are gain-corrected with gain 1. None divides by the dtype's maximum.
         """
 
         if transform is None:
