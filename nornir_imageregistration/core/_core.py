@@ -2483,17 +2483,11 @@ def SaveImage(ImageFullPath: str, image: NDArray, bpp: int | None = None, **kwar
                 Uint8_image = image_to_uint8(image)
                 im = Image.fromarray(Uint8_image, mode="L")
             else:
-                uint16_image = uint16_img_from_float_array(image)
-                if ext.lower() == '.png':
-                    im = uint16_img_from_uint16_array(uint16_image)
-                else:
-                    im = Image.fromarray(uint16_image, mode="I;16")
+                im = uint16_img_from_uint16_array(uint16_img_from_float_array(image))
         else:
-            if ext.lower() == '.png' or bpp > 16:
-                # Pillow has no 32-bit unsigned mode and PNG tops out at 16 bits.
-                im = uint16_img_from_uint16_array(image)
-            else:
-                im = Image.fromarray(image, mode=f"I;{bpp}")
+            # Pillow has no 32-bit unsigned mode and PNG tops out at 16 bits. Pillow 13 also rejects
+            # fromarray(uint16, mode="I;16"); without a mode a uint16 array already becomes I;16.
+            im = uint16_img_from_uint16_array(image)
 
         try:
             im.save(ImageFullPath, **kwargs)
