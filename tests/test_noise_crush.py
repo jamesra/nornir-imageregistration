@@ -74,6 +74,21 @@ class TestCrushParams(unittest.TestCase):
         self.assertEqual(params.offset, -124)
         self.assertEqual(noise_crush.make_crush_params(10.0, 5000, np.uint16, section_min=-123.4).offset, 0)
 
+    def test_clipped_pixels_keep_one_code_whatever_the_gain(self) -> None:
+        """RC3 1606: pure-65535 film divided by each tile's gain landed on a different code per tile (stripes)."""
+        params = CrushParams(k=2.5, step=377, sigma=150.8, offset=0, bits=9, source_dtype='uint16')
+        image = np.array([[65535, 30000]], dtype=np.uint16)
+        expected_clip = 65535 // 377
+        for gain in (0.314, 0.641, 1.0, 2.099):
+            codes = noise_crush.crush(image, params, gain)
+            self.assertEqual(int(codes[0, 0]), expected_clip, gain)
+            self.assertEqual(int(codes[0, 1]), min(params.max_code, int(30000 / gain // 377)), gain)
+
+    def test_clipped_fraction(self) -> None:
+        image = np.array([[65535, 65535, 1, 2]], dtype=np.uint16)
+        self.assertEqual(noise_crush.clipped_fraction(image), 0.5)
+        self.assertEqual(noise_crush.clipped_fraction(image.astype(np.int32)), 0.0)
+
     def test_zero_sigma_is_lossless(self) -> None:
         """An overexposed section (sigma 0) crushes with step 1 instead of failing the import."""
         params = noise_crush.make_crush_params(0.0, 59900, np.uint16)

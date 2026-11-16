@@ -205,13 +205,30 @@ def gain_corrected_counts(image: NDArray, gain: float) -> NDArray:
     return values.astype(working) / working(gain)
 
 
+def source_clip_value(dtype: DTypeLike) -> int | None:
+    """The value a camera writes for a clipped (saturated) pixel: the maximum of an unsigned integer *dtype*, else None."""
+    dt = np.dtype(dtype)
+    return int(np.iinfo(dt).max) if np.issubdtype(dt, np.unsignedinteger) else None
+
+
+def clipped_fraction(image: NDArray) -> float:
+    """Fraction of *image*'s pixels at the source maximum (clipped by the camera); 0 for signed or float images."""
+    values = np.asarray(image)
+    clip = source_clip_value(values.dtype)
+    if clip is None or values.size == 0:
+        return 0.0
+    return float(np.count_nonzero(values == clip)) / values.size
+
+
 def crush(image: NDArray, params: CrushParams, gain: float = 1.0) -> NDArray:
     """
     Quantize raw counts to codes; values outside ``[offset, offset + max_code * step]`` are clipped.
 
     With a *gain* other than 1 the counts are divided by it first (gain-first crush): a tile that is dim by *gain* is
     quantized in the units of the section's brighter tiles, instead of with a step that is several of its own noise
-    sigmas wide.
+    sigmas wide. A pixel the camera clipped (the source maximum) is not divided: its true count is unknown, and
+    dividing it by each tile's gain gave every tile's overexposed film a different level (RC3 1606 striped). It keeps
+    the code of the clip value, the same in every tile.
     """
     if gain == 1.0:
         shifted = np.asarray(image).astype(np.int64) - params.offset
@@ -222,6 +239,9 @@ def crush(image: NDArray, params: CrushParams, gain: float = 1.0) -> NDArray:
         shifted -= params.offset
         np.clip(shifted, 0, None, out=shifted)
         codes = np.floor(shifted / params.step).astype(np.int64)
+        clip = source_clip_value(np.asarray(image).dtype)
+        if clip is not None:
+            codes[np.asarray(image) == clip] = max(0, clip - params.offset) // params.step
     np.clip(codes, 0, params.max_code, out=codes)
     return codes.astype(params.storage_dtype)
 
