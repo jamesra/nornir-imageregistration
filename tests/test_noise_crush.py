@@ -82,7 +82,14 @@ class TestCrushParams(unittest.TestCase):
         for gain in (0.314, 0.641, 1.0, 2.099):
             codes = noise_crush.crush(image, params, gain)
             self.assertEqual(int(codes[0, 0]), expected_clip, gain)
-            self.assertEqual(int(codes[0, 1]), min(params.max_code, int(30000 / gain // 377)), gain)
+            self.assertEqual(int(codes[0, 1]), min(expected_clip, int(30000 / gain // 377)), gain)
+
+    def test_no_divided_pixel_codes_above_the_clip(self) -> None:
+        """RC3 1606: near-clipped film divided by gain ~0.5 coded brighter than clipped film (a band ramping to white)."""
+        params = CrushParams(k=2.5, step=377, sigma=150.8, offset=0, bits=8, source_dtype='uint16')
+        image = np.array([[65535, 65000, 20000]], dtype=np.uint16)
+        codes = noise_crush.crush(image, params, 0.5)
+        self.assertEqual(codes.tolist(), [[173, 173, int(40000 // 377)]])
 
     def test_clipped_fraction(self) -> None:
         image = np.array([[65535, 65535, 1, 2]], dtype=np.uint16)

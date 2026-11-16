@@ -228,7 +228,8 @@ def crush(image: NDArray, params: CrushParams, gain: float = 1.0) -> NDArray:
     quantized in the units of the section's brighter tiles, instead of with a step that is several of its own noise
     sigmas wide. A pixel the camera clipped (the source maximum) is not divided: its true count is unknown, and
     dividing it by each tile's gain gave every tile's overexposed film a different level (RC3 1606 striped). It keeps
-    the code of the clip value, the same in every tile.
+    the code of the clip value, the same in every tile, and no divided pixel codes above it: nothing is brighter than
+    what the camera saturates at (RC3 1606: near-clipped film divided by gains of about 0.5 ramped past the clip).
     """
     if gain == 1.0:
         shifted = np.asarray(image).astype(np.int64) - params.offset
@@ -241,7 +242,9 @@ def crush(image: NDArray, params: CrushParams, gain: float = 1.0) -> NDArray:
         codes = np.floor(shifted / params.step).astype(np.int64)
         clip = source_clip_value(np.asarray(image).dtype)
         if clip is not None:
-            codes[np.asarray(image) == clip] = max(0, clip - params.offset) // params.step
+            clip_code = max(0, clip - params.offset) // params.step
+            np.minimum(codes, clip_code, out=codes)
+            codes[np.asarray(image) == clip] = clip_code
     np.clip(codes, 0, params.max_code, out=codes)
     return codes.astype(params.storage_dtype)
 
