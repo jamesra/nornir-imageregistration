@@ -149,11 +149,21 @@ def estimate_noise_sigma(image: NDArray, crop: int = 2048) -> float:
 
 
 def section_sigma(sigmas: Sequence[float]) -> float:
-    """Combine per-tile sigma estimates into one section value (median, robust to a bad tile)."""
+    """
+    Combine per-tile sigma estimates into one section value (median, robust to a bad tile).
+
+    Tiles with no measurable noise (estimate 0: overexposed, clipped at the camera maximum, or blank) say nothing
+    about the detector noise, so the median is over the tiles that have some. When no tile has any the section
+    sigma is 0, which ``make_crush_params`` stores losslessly.
+    """
     if len(sigmas) == 0:
         raise ValueError("No sigma estimates to combine")
 
-    return float(np.median(np.asarray(sigmas, dtype=np.float64)))
+    values = np.asarray(sigmas, dtype=np.float64)
+    measured = values[np.isfinite(values) & (values > 0)]
+    if measured.size == 0:
+        return 0.0
+    return float(np.median(measured))
 
 
 def sample_indices(count: int, max_samples: int = 16) -> list[int]:
@@ -172,9 +182,10 @@ def make_crush_params(sigma: float, section_max: float, source_dtype: DTypeLike,
     ``offset`` is 0 for unsigned data and the (negative) section minimum for signed
     data, so signed MRC tiles keep their low counts. Storage is 8 bits whenever the
     largest quotient fits, otherwise the fewest bits that hold it in a uint16.
+    A sigma of 0 (no measurable noise, e.g. an overexposed section) gives step 1: the counts are kept losslessly.
     """
-    if not np.isfinite(sigma) or sigma <= 0:
-        raise ValueError(f"Noise sigma must be a positive finite number, got {sigma}")
+    if not np.isfinite(sigma) or sigma < 0:
+        raise ValueError(f"Noise sigma must be a non-negative finite number, got {sigma}")
 
     step = max(1, round(k * sigma))
     offset = min(0, math.floor(section_min)) if np.issubdtype(np.dtype(source_dtype), np.signedinteger) else 0

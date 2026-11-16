@@ -40,6 +40,16 @@ class TestEstimateNoiseSigma(unittest.TestCase):
         with self.assertRaises(ValueError):
             noise_crush.section_sigma([])
 
+    def test_section_sigma_ignores_tiles_without_noise(self) -> None:
+        """Overexposed tiles estimate 0; the section sigma comes from the tiles that have noise."""
+        self.assertEqual(noise_crush.section_sigma([0.0, 0.0, 0.0, 10.0, 12.0]), 11.0)
+        self.assertEqual(noise_crush.section_sigma([0.0, 0.0]), 0.0)
+
+    def test_overexposed_tile_has_no_measurable_noise(self) -> None:
+        rng = np.random.default_rng(3)
+        image = np.minimum(rng.normal(60000.0, 40.0, (512, 512)), 59900).astype(np.uint16)
+        self.assertEqual(noise_crush.estimate_noise_sigma(image), 0.0)
+
     def test_sample_indices_spread_and_cap(self) -> None:
         self.assertEqual(noise_crush.sample_indices(5, 16), [0, 1, 2, 3, 4])
         picked = noise_crush.sample_indices(100, 16)
@@ -64,8 +74,15 @@ class TestCrushParams(unittest.TestCase):
         self.assertEqual(params.offset, -124)
         self.assertEqual(noise_crush.make_crush_params(10.0, 5000, np.uint16, section_min=-123.4).offset, 0)
 
+    def test_zero_sigma_is_lossless(self) -> None:
+        """An overexposed section (sigma 0) crushes with step 1 instead of failing the import."""
+        params = noise_crush.make_crush_params(0.0, 59900, np.uint16)
+        self.assertEqual((params.step, params.bits), (1, 16))
+        codes = np.array([[0, 1234, 59900]], dtype=np.uint16)
+        np.testing.assert_array_equal(noise_crush.crush(codes, params), codes)
+
     def test_rejects_bad_sigma(self) -> None:
-        for sigma in (0.0, -1.0, float('nan')):
+        for sigma in (-1.0, float('nan'), float('inf')):
             with self.assertRaises(ValueError):
                 noise_crush.make_crush_params(sigma, 1000, np.uint16)
 
