@@ -277,6 +277,64 @@ class TestGridLayoutRelax(unittest.TestCase):
         rest = layout.nodes[1].GetOffset(2)
         self.assertAlmostEqual(float(np.linalg.norm(rest)), spacing, places=5)
 
+    @hyp_settings(deadline=None, max_examples=60)
+    @given(
+        rows=st.integers(min_value=1, max_value=12),
+        cols=st.integers(min_value=1, max_value=12),
+        fixed_fraction=st.floats(min_value=0.0, max_value=1.0),
+        seed=st.integers(min_value=0, max_value=2 ** 31 - 1),
+    )
+    def test_rest_offsets_match_the_linear_scan(
+            self, rows: int, cols: int, fixed_fraction: float, seed: int) -> None:
+        """The KD-tree lookup picks the same sample, ties included, as the old linear scan."""
+        rng = np.random.default_rng(seed)
+        spacing = (10.0, 12.0)
+        points = self._identity_lattice(rows, cols, 1.0) * np.array(spacing)
+        points = points + rng.normal(scale=2.0, size=points.shape)
+        fixed = rng.random(rows * cols) < fixed_fraction
+        layout = create_grid_spacing_layout(points, (rows, cols), spacing)
+        set_local_similarity_rest_offsets(layout, points, fixed, (rows, cols), spacing)
+        expected = _linear_scan_rest_offsets(points, fixed, rows, cols, spacing)
+        for (i, j), rest in expected.items():
+            np.testing.assert_array_equal(layout.nodes[i].GetOffset(j), rest)
+
+
+def _linear_scan_rest_offsets(
+        points: np.ndarray, fixed: np.ndarray, rows: int, cols: int,
+        spacing: tuple[float, float]) -> dict[tuple[int, int], np.ndarray]:
+    """Reference: the O(edges × samples) nearest-sample scan the KD-tree replaced."""
+    right: list[tuple[float, float, np.ndarray]] = []
+    down: list[tuple[float, float, np.ndarray]] = []
+    for row in range(rows):
+        for col in range(cols):
+            i = row * cols + col
+            if col + 1 < cols and fixed[i] and fixed[i + 1]:
+                right.append((row + 0.0, col + 0.5, points[i + 1] - points[i]))
+            if row + 1 < rows and fixed[i] and fixed[i + cols]:
+                down.append((row + 0.5, col + 0.0, points[i + cols] - points[i]))
+
+    def nearest(samples, mid_r, mid_c, fallback):
+        best, best_d2 = fallback, float('inf')
+        for sr, sc, vec in samples:
+            d2 = (sr - mid_r) ** 2 + (sc - mid_c) ** 2
+            if d2 < best_d2:
+                best_d2, best = d2, vec
+        return best
+
+    out: dict[tuple[int, int], np.ndarray] = {}
+    for row in range(rows):
+        for col in range(cols):
+            i = row * cols + col
+            if col + 1 < cols:
+                j = i + 1
+                out[(i, j)] = (points[j] - points[i] if fixed[i] and fixed[j] else
+                               nearest(right, row + 0.0, col + 0.5, np.array([0.0, spacing[1]])))
+            if row + 1 < rows:
+                j = i + cols
+                out[(i, j)] = (points[j] - points[i] if fixed[i] and fixed[j] else
+                               nearest(down, row + 0.5, col + 0.0, np.array([spacing[0], 0.0])))
+    return out
+
 
 class TestLayoutRelaxNode(unittest.TestCase):
     def test_relax_node_and_fixed_ids(self) -> None:

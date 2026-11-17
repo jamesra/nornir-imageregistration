@@ -127,25 +127,12 @@ def set_local_similarity_rest_offsets(
                     mid_c = col + 0.0
                     down_samples.append((mid_r, mid_c, points[j] - points[i]))
 
-    def _nearest(
-            samples: list[tuple[float, float, NDArray[np.floating]]],
-            mid_r: float,
-            mid_c: float,
-            fallback: NDArray[np.floating],
-    ) -> NDArray[np.floating]:
-        if not samples:
-            return fallback
-        best_vec = samples[0][2]
-        best_d2 = float('inf')
-        for sr, sc, vec in samples:
-            d2 = (sr - mid_r) ** 2 + (sc - mid_c) ** 2
-            if d2 < best_d2:
-                best_d2 = d2
-                best_vec = vec
-        return np.asarray(best_vec, dtype=np.float64)
-
     right_fallback = np.array([0.0, float(spacing[1])], dtype=np.float64)
     down_fallback = np.array([float(spacing[0]), 0.0], dtype=np.float64)
+
+    # Free edges per direction, as (i, j, mid_r, mid_c), resolved in one batched query below.
+    right_free: list[tuple[int, int, float, float]] = []
+    down_free: list[tuple[int, int, float, float]] = []
 
     for row in range(rows):
         for col in range(cols):
@@ -153,17 +140,50 @@ def set_local_similarity_rest_offsets(
             if col + 1 < cols:
                 j = _row_col_to_index(row, col + 1, cols)
                 if fixed[i] and fixed[j]:
-                    rest = points[j] - points[i]
+                    layout.SetOffset(i, j, offset=points[j] - points[i], weight=1.0)
                 else:
-                    rest = _nearest(right_samples, row + 0.0, col + 0.5, right_fallback)
-                layout.SetOffset(i, j, offset=np.asarray(rest, dtype=np.float64), weight=1.0)
+                    right_free.append((i, j, row + 0.0, col + 0.5))
             if row + 1 < rows:
                 j = _row_col_to_index(row + 1, col, cols)
                 if fixed[i] and fixed[j]:
-                    rest = points[j] - points[i]
+                    layout.SetOffset(i, j, offset=points[j] - points[i], weight=1.0)
                 else:
-                    rest = _nearest(down_samples, row + 0.5, col + 0.0, down_fallback)
-                layout.SetOffset(i, j, offset=np.asarray(rest, dtype=np.float64), weight=1.0)
+                    down_free.append((i, j, row + 0.5, col + 0.0))
+
+    for free_edges, samples, fallback in (
+            (right_free, right_samples, right_fallback),
+            (down_free, down_samples, down_fallback)):
+        rests = _nearest_sample_vectors(free_edges, samples, fallback)
+        for (i, j, _, _), rest in zip(free_edges, rests):
+            layout.SetOffset(i, j, offset=rest, weight=1.0)
+
+
+def _nearest_sample_vectors(
+        free_edges: list[tuple[int, int, float, float]],
+        samples: list[tuple[float, float, NDArray[np.floating]]],
+        fallback: NDArray[np.floating],
+) -> list[NDArray[np.floating]]:
+    """Return, for each free edge midpoint, the vector of the nearest fixed–fixed sample.
+
+    Ties go to the earliest sample in row-major order, as the linear scan this replaces did.
+    That scan was O(edges × samples) and took 12.6 s on a 126×126 grid, inside the relax wave
+    Pyre runs after every registration and drag; the KD-tree makes it O(edges log samples).
+    Midpoints are half-integers, so squared distances are exact and ties are exact too.
+    """
+    if not free_edges:
+        return []
+    if not samples:
+        return [fallback.copy() for _ in free_edges]
+    from scipy.spatial import cKDTree
+
+    sample_mids = np.array([(sr, sc) for sr, sc, _ in samples], dtype=np.float64)
+    sample_vecs = np.array([vec for _, _, vec in samples], dtype=np.float64)
+    edge_mids = np.array([(mr, mc) for _, _, mr, mc in free_edges], dtype=np.float64)
+    tree = cKDTree(sample_mids)
+    dist, _ = tree.query(edge_mids, k=1)
+    # Every sample at the nearest distance, so the lowest index can win the tie.
+    tied = tree.query_ball_point(edge_mids, r=dist * (1.0 + 1e-9) + 1e-9)
+    return [sample_vecs[min(candidates)].copy() for candidates in tied]
 
 
 def propagate_masked_grid_positions(
