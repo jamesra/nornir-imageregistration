@@ -75,8 +75,9 @@ class TestCellPassHistory(unittest.TestCase):
             path = store.write_npz(tmp)
             self.assertIsNotNone(path)
             assert path is not None
-            data = np.load(path)
-            self.assertEqual(int(data['pass'].shape[0]), 4)
+            # Close the npz before the temp folder is removed; Windows cannot delete an open file.
+            with np.load(path) as data:
+                self.assertEqual(int(data['pass'].shape[0]), 4)
             plots = write_cell_history_plots(tmp, store.as_arrays(), pair_label='unit')
             self.assertIn('half_aggregates', plots)
             self.assertTrue(os.path.isfile(plots['half_aggregates']))

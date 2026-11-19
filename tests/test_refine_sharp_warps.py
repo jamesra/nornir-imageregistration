@@ -261,12 +261,13 @@ class TestPassDiagnostics(unittest.TestCase):
             self.assertTrue(os.path.isfile(written['npz']))
             self.assertTrue(os.path.isfile(written['csv']))
             self.assertGreater(float(written['tables_s']), 0.0)
-            data = np.load(written['npz'])
-            self.assertEqual(int(data['grid_col'][1]), 1)
-            self.assertTrue(bool(data['discontinuity'][1]))
-            self.assertTrue(bool(data['travel_dropped'][1]))
-            self.assertIn('peak_ratio', data.files)
-            self.assertTrue(np.all(np.isnan(data['peak_ratio'])))  # unset on synthetic records
+            # Close the npz before the temp folder is removed; Windows cannot delete an open file.
+            with np.load(written['npz']) as data:
+                self.assertEqual(int(data['grid_col'][1]), 1)
+                self.assertTrue(bool(data['discontinuity'][1]))
+                self.assertTrue(bool(data['travel_dropped'][1]))
+                self.assertIn('peak_ratio', data.files)
+                self.assertTrue(np.all(np.isnan(data['peak_ratio'])))  # unset on synthetic records
 
     def test_write_pass_diagnostics_tables_only_skips_png(self) -> None:
         records = [
