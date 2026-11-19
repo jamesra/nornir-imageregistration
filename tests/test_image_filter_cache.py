@@ -8,6 +8,7 @@ import threading
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from unittest import mock
 
 import numpy as np
 from numpy.typing import DTypeLike
@@ -64,6 +65,43 @@ class TestWindowFilterCache(unittest.TestCase):
         self.assertFalse(arr.flags.writeable)
         reloaded = np.load(path)
         self.assertEqual(reloaded.dtype, np.float32)
+
+    def test_truncated_file_is_rebuilt_and_replaced_atomically(self) -> None:
+        """A half-written file (another process mid-save before saves were atomic) is replaced, not deleted.
+
+        RC3 2026-11-19: six AssembleTiles processes shared /tmp/distance and read each other's partial
+        files. The save now goes to a temporary name and is renamed onto the path, so the path only ever
+        holds a whole file, and the reader no longer deletes a file it couldn't read.
+        """
+        cache = self._cache(dtype=np.float32)
+        shape = (64, 64)
+        path = os.path.join(cache.cache_dir, f"{shape[0]}x{shape[1]}.npy")
+        np.save(path, np.ones(shape, dtype=np.float32))
+        with open(path, 'r+b') as handle:
+            handle.truncate(os.path.getsize(path) // 3)
+
+        removed: list[str] = []
+        real_remove = os.remove
+
+        def tracking_remove(target, *args, **kwargs):
+            removed.append(os.fspath(target))
+            return real_remove(target, *args, **kwargs)
+
+        with mock.patch('nornir_imageregistration.image_filter_cache.os.remove', side_effect=tracking_remove):
+            arr = cache.GetOrCreate(shape)
+        np.testing.assert_array_equal(arr, np.ones(shape, dtype=np.float32))
+        self.assertNotIn(path, removed, "the cache path is never deleted, only replaced")
+        np.testing.assert_array_equal(np.load(path), arr)
+        self.assertEqual([name for name in os.listdir(cache.cache_dir) if name.endswith('.tmp')], [])
+
+    def test_failed_save_leaves_no_temporary_file(self) -> None:
+        cache = self._cache(dtype=np.float32)
+        shape = (5, 9)
+        with mock.patch('nornir_imageregistration.image_filter_cache.os.replace',
+                        side_effect=PermissionError("in use")):
+            arr = cache.GetOrCreate(shape)
+        self.assertEqual(arr.shape, shape)
+        self.assertEqual(os.listdir(cache.cache_dir), [])
 
     def test_concurrent_get_or_create_single_build_and_shared_array(self) -> None:
         create_count = 0

@@ -2,6 +2,7 @@
 Implements a class that caches filter windows for use in image processing.  Examples are hamming and distance filters.
 
 """
+import contextlib
 import shutil
 import multiprocessing
 import threading
@@ -139,9 +140,10 @@ class WindowFilterCache:
             # Load without mmap to avoid Windows "file in use" locks during shutdown.
             output = np.load(image_path)
             if output.dtype != self._dtype:
+                # Rebuilt below and replaced in place; deleting it here could race another
+                # process's save.
                 output = None
-                prettyoutput.Log(f"Removed outdated image from {self._name} cache: {image_path}")
-                os.remove(image_path)
+                prettyoutput.Log(f"Replacing outdated image in {self._name} cache: {image_path}")
             else:
                 output.flags.writeable = False
                 self._loaded_images[image_shape] = output
@@ -150,13 +152,11 @@ class WindowFilterCache:
             # print("Distance_image %s does not exist" % distance_array_path)
             pass
         except Exception as e:
-            print(f"{self._name}: Invalid image {image_path}\n{str(e)}")
-            try:
-                os.remove(image_path)
-            except IOError as e:
-                prettyoutput.LogErr(f"Unable to delete invalid image: {image_path}\n{str(e)}")
-                pass
-            pass
+            # Not deleted: saves are atomic (_save_atomically), so an unreadable file is a damaged
+            # one that the save below replaces, and a delete here could remove another process's
+            # finished file. Before saves were atomic, readers in other processes saw half-written
+            # files (RC3, 6 AssembleTiles lanes sharing /tmp/distance, 2026-11-19).
+            prettyoutput.Log(f"{self._name}: rebuilding unreadable cache image {image_path}: {e}")
 
         if output is None:
             output = self._creation_function(image_shape, self._dtype)
@@ -166,19 +166,37 @@ class WindowFilterCache:
             output.flags.writeable = False
             self._loaded_images[image_shape] = output
             try:
-                np.save(image_path, output)
-            except OSError as e:
+                _save_atomically(image_path, output)
+            except OSError:
                 # Directory may have been removed by another process's cache
                 # cleanup (__del__) or a temp scrubber since __init__.
                 try:
                     os.makedirs(self.cache_dir, exist_ok=True)
-                    np.save(image_path, output)
+                    _save_atomically(image_path, output)
                 except OSError as retry_error:
                     prettyoutput.LogErr(
                         f"Unable to save {self._name} cache image {image_path}: {retry_error}"
                     )
 
         return output
+
+
+def _save_atomically(path: str, array: NDArray) -> None:
+    """Write *array* to ``<path>.<pid>.<thread>.tmp`` and rename it onto *path*.
+
+    The cache directory is shared by every process on the host, so a reader must never see a
+    partly written file. ``os.replace`` is atomic on POSIX and NTFS. The temporary file is
+    removed if the write or the rename fails.
+    """
+    temporary = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    try:
+        with open(temporary, 'wb') as handle:
+            np.save(handle, array)
+        os.replace(temporary, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(temporary)
+        raise
 
 
 def CreateWindowFilterCache(window_type: str, dtype: DTypeLike | None = None) -> WindowFilterCache:
