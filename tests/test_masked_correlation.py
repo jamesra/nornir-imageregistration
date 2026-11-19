@@ -154,6 +154,52 @@ class TestMaskedFindOffset(unittest.TestCase):
         self.assertTrue(np.isnan(result.ncc))
 
 
+class TestSignificance(unittest.TestCase):
+
+    def test_the_same_ncc_over_a_larger_overlap_ranks_higher(self) -> None:
+        ncc = np.array([[0.6, 0.6, np.nan]])
+        overlap = np.array([[100.0, 400.0, 400.0]])
+        z = mc.significance_surface(ncc, overlap, np)
+        self.assertGreater(z[0, 1], z[0, 0])
+        self.assertTrue(np.isnan(z[0, 2]))
+        surface, eligible = mc.surface_for_peak_finding(z, np)
+        self.assertEqual(1.0, float(surface[0, 1]))
+        np.testing.assert_array_equal([[True, True, False]], eligible)
+
+
+class TestAttemptAlignPointMasked(unittest.TestCase):
+    """The masked AttemptAlignPoint path recovers a known offset next to a tissue edge."""
+
+    def test_known_offset_at_a_tissue_edge(self) -> None:
+        from nornir_imageregistration.local_distortion_correction import (
+            AttemptAlignPoint,
+        )
+        from nornir_imageregistration.transforms.rigid import RigidNoRotation
+
+        big = _texture((640, 640), 21, sigma=1.5)
+        target = big[64:576, 64:576].copy()
+        source = big[64 + 6:576 + 6, 64 - 4:576 - 4].copy()
+        target_mask = np.ones(target.shape, bool)
+        target_mask[:, 300:] = False  # tissue ends right of x = 300
+        source_mask = np.ones(source.shape, bool)
+        source_mask[:, 304:] = False
+        target[~target_mask] = 0.0
+        source[~source_mask] = 0.0
+        point = np.array([256.0, 290.0])  # window centred on the edge, about half tissue
+
+        identity = RigidNoRotation(target_offset=(0.0, 0.0))
+        unmasked = AttemptAlignPoint(identity, big[64:576, 64:576], big[70:582, 60:572], None, None, point,
+                                     np.array([128, 128]), np.array([0.0]), estimate_angle=False,
+                                     search_scale=False, target_mask=np.ones(target.shape, bool))
+        masked = AttemptAlignPoint(identity, target, source, None, None, point, np.array([128, 128]),
+                                   np.array([0.0]), estimate_angle=False, search_scale=False,
+                                   target_mask=target_mask, source_mask=source_mask)
+        assert unmasked is not None and masked is not None
+        np.testing.assert_allclose(np.abs(masked.peak), [6.0, 4.0], atol=0.6)
+        np.testing.assert_allclose(masked.peak, unmasked.peak, atol=0.6)
+        self.assertGreater(masked.masked_ncc, 0.9)
+
+
 class TestMaskedBandpass(unittest.TestCase):
 
     def test_mask_edge_does_not_leak(self) -> None:

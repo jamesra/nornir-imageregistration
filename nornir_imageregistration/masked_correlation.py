@@ -195,10 +195,32 @@ class MaskedOffsetResult(NamedTuple):
     overlap: int  # valid pixels in the overlap at the peak sample
 
 
-def surface_for_peak_finding(ncc, xp):
-    """Map NCC to [0, 1] for find_peak; invalid shifts become 0 and are excluded."""
-    valid = xp.isfinite(ncc)
-    return xp.where(valid, (ncc + 1.0) * 0.5, 0.0), valid
+def significance_surface(ncc, overlap, xp):
+    """Fisher z of each shift's NCC scaled by sqrt(overlap): how far the match stands above chance.
+
+    Raw NCC over a small overlap has a wide null distribution, so its maximum over all shifts drifts
+    to the smallest allowed overlaps (on RC3 294-296, Space peaks landed ~110 px out at ~55% overlap
+    on points whose true offset was ~0). ``atanh(r) * sqrt(n)`` is proportional to the z-score of r
+    against r = 0 for any fixed correlation length, so its argmax prefers the match that is least
+    likely by chance; the per-image correlation length is a constant factor and does not move the
+    argmax. Invalid shifts are NaN.
+    """
+    r = xp.clip(ncc, -0.999999, 0.999999)
+    return xp.arctanh(r) * xp.sqrt(xp.maximum(overlap, 0.0))
+
+
+def surface_for_peak_finding(score, xp):
+    """Scale a significance surface to [0, 1] for find_peak; invalid and negative shifts become 0.
+
+    Only valid shifts are eligible. ``weight`` (peak / mean) and ``peak_ratio`` (peak / second peak)
+    are then ratios of significance.
+    """
+    valid = xp.isfinite(score)
+    positive = xp.where(valid, xp.maximum(score, 0.0), 0.0)
+    top = float(positive.max()) if positive.size else 0.0
+    if top <= 0.0:
+        return positive, valid & (positive > 0)
+    return positive / top, valid
 
 
 def masked_find_offset(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
@@ -210,9 +232,9 @@ def masked_find_offset(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
     """Masked counterpart of :func:`phasecorrelation.find_offset` for one ``(h, w)`` pair.
 
     Band-passes both images on their valid pixels, computes the masked NCC surface and finds the peak
-    with the same :func:`find_peak` (so ``weight`` and ``peak_ratio`` are defined as before, on the
-    surface ``(ncc + 1) / 2``). The returned peak is the centre-to-centre offset of *moving* over
-    *fixed*, as from ``find_offset``.
+    of its significance (:func:`significance_surface`) with the same :func:`find_peak`. The returned
+    peak is the centre-to-centre offset of *moving* over *fixed*, as from ``find_offset``; ``ncc`` is
+    the raw masked NCC at that shift.
     """
     xp = cp.get_array_module(fixed)
     if bandpass_sigmas is None:
@@ -220,7 +242,7 @@ def masked_find_offset(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
     f, f_valid = masked_bandpass(fixed, fixed_mask, *bandpass_sigmas)
     g, g_valid = masked_bandpass(moving, moving_mask, *bandpass_sigmas)
     ncc, overlap = masked_ncc_surface(f, f_valid, g, g_valid, min_overlap_fraction)
-    surface, eligible = surface_for_peak_finding(ncc, xp)
+    surface, eligible = surface_for_peak_finding(significance_surface(ncc, overlap, xp), xp)
 
     if not bool(eligible.any()):
         record = nornir_imageregistration.AlignmentRecord(peak=(0.0, 0.0), weight=0.0, peak_ratio=0.0)

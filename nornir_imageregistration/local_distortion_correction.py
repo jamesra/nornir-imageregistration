@@ -38,6 +38,7 @@ from nornir_imageregistration.env_flags import env_is_truthy
 from nornir_imageregistration.mathfuncs import EMA
 import nornir_imageregistration.phasecorrelation
 import nornir_imageregistration.batched_phase_correlation
+import nornir_imageregistration.masked_correlation
 from nornir_imageregistration.settings import SliceToSliceMethod
 from nornir_imageregistration.transformed_image_data import TransformedTileMetadata
 from nornir_imageregistration.registration_control import (
@@ -6266,6 +6267,104 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
     return target_image_roi, source_image_roi  # type: ignore[return-value]
 
 
+# A warped or rotated mask pixel counts as valid only when its interpolated value is at least this:
+# a pixel that blends in any masked or out-of-bounds sample is left out.
+_MASK_VALID_MIN: float = 0.999
+
+
+def BuildMaskedAlignmentROIs(transform: nornir_imageregistration.ITransform,
+                             targetImage: NDArray,
+                             target_mask: NDArray[np.bool_] | None,
+                             sourceImage: NDArray,
+                             source_mask: NDArray[np.bool_] | None,
+                             target_controlpoint: NDArray | tuple[float, float],
+                             alignmentArea: NDArray | tuple[float, float],
+                             ) -> tuple[NDArray, NDArray[np.bool_], NDArray, NDArray[np.bool_]]:
+    """Target and source ROIs in the target-space frame of :func:`BuildAlignmentROIs`, with validity masks.
+
+    Nothing is noise-filled: pixels outside an image, masked, or (for the warped source) blended with
+    either are False in the returned mask. Accepts NumPy or CuPy; ops follow the target image.
+    :return: ``(target_roi, target_valid, source_roi, source_valid)``.
+    """
+    xp = cp.get_array_module(targetImage)
+    sourceImage = _ensure_on_array_module(sourceImage, xp)
+
+    point = np.asarray(nornir_imageregistration.EnsureNumpyArray(target_controlpoint),
+                       dtype=np.float64).ravel()[:2].copy()
+    area = np.asarray(nornir_imageregistration.EnsureNumpyArray(alignmentArea), dtype=np.float64).ravel()[:2]
+    point[np.mod(area, 2) > 0] += 0.5
+    target_rectangle = nornir_imageregistration.Rectangle.CreateFromPointAndArea(
+        point=(float(point[0]) - float(area[0]) / 2.0, float(point[1]) - float(area[1]) / 2.0), area=area)
+    rect = nornir_imageregistration.Rectangle.SnapRound(target_rectangle)
+    rect = nornir_imageregistration.Rectangle.change_area(rect, alignmentArea, integer_origin=True)
+    x0, y0 = int(rect.BottomLeft[1]), int(rect.BottomLeft[0])
+    width, height = int(rect.Size[1]), int(rect.Size[0])
+
+    def _valid_float(image: NDArray, mask: NDArray[np.bool_] | None) -> NDArray:
+        finite = xp.isfinite(image)
+        valid = finite if mask is None else (_ensure_on_array_module(mask, xp).astype(bool) & finite)
+        return valid.astype(xp.float32)
+
+    target_roi = nornir_imageregistration.CropImage(targetImage, x0, y0, width, height, cval=0)
+    target_valid = nornir_imageregistration.CropImage(_valid_float(targetImage, target_mask), x0, y0, width,
+                                                      height, cval=0) >= _MASK_VALID_MIN
+
+    source_roi = nornir_imageregistration.assemble.SourceImageToTargetSpace(
+        transform, DataToTransform=sourceImage, output_botleft=rect.BottomLeft, output_area=rect.Size,
+        extrapolate=True, cval=np.nan)
+    source_valid_f = nornir_imageregistration.assemble.SourceImageToTargetSpace(
+        transform, DataToTransform=_valid_float(sourceImage, source_mask), output_botleft=rect.BottomLeft,
+        output_area=rect.Size, extrapolate=True, cval=0.0)
+    # SourceImageToTargetSpace follows the process-wide backend, not the input's; bring the two small ROIs
+    # back to the target's backend once, here, so the scoring stays on one side.
+    source_roi = _ensure_on_array_module(source_roi, xp)
+    source_valid_f = _ensure_on_array_module(source_valid_f, xp)
+    source_valid = (source_valid_f >= _MASK_VALID_MIN) & xp.isfinite(source_roi)
+    return target_roi, target_valid, source_roi, source_valid
+
+
+def _rotate_with_mask(image: NDArray, valid: NDArray[np.bool_],
+                      angle: float) -> tuple[NDArray, NDArray[np.bool_]]:
+    """Rotate *image* and its validity mask about the centre (the output grows to hold the rotation)."""
+    if angle == 0:
+        return image, valid
+    xp = cp.get_array_module(image)
+    nd = cupyx.scipy.get_array_module(image).ndimage
+    # ndimage.rotate's angle runs opposite to affine_transform's; stos_brute.rotate_image negates it too.
+    filled = xp.where(valid, image, 0.0).astype(xp.float32)
+    rotated = nd.rotate(filled, angle=-angle, axes=(1, 0), order=1, cval=0.0)
+    rotated_valid = nd.rotate(valid.astype(xp.float32), angle=-angle, axes=(1, 0), order=1, cval=0.0)
+    return rotated, rotated_valid >= _MASK_VALID_MIN
+
+
+def AlignMaskedROIs(target_roi: NDArray, target_valid: NDArray[np.bool_],
+                    source_roi: NDArray, source_valid: NDArray[np.bool_],
+                    angles: Iterable[float],
+                    min_overlap_fraction: float =
+                    nornir_imageregistration.masked_correlation.DEFAULT_MIN_OVERLAP_FRACTION,
+                    ) -> nornir_imageregistration.AlignmentRecord | None:
+    """Best rigid alignment of two ROIs over *angles* by masked NCC (masked pixels take no part).
+
+    The best angle is the one with the highest peak NCC. The record's peak is the centre-to-centre
+    offset, as from SliceToSliceRigidRegistration; ``record.masked_ncc`` holds the peak NCC.
+    Returns None when no angle has a valid overlap.
+    """
+    best: tuple[float, nornir_imageregistration.AlignmentRecord] | None = None
+    for angle in angles:
+        rotated, rotated_valid = _rotate_with_mask(source_roi, source_valid, float(angle))
+        result = nornir_imageregistration.masked_correlation.masked_find_offset(
+            target_roi, target_valid, rotated, rotated_valid, min_overlap_fraction=min_overlap_fraction)
+        if not np.isfinite(result.ncc) or result.record.weight <= 0:
+            continue
+        if best is None or result.ncc > best[0]:
+            record = nornir_imageregistration.AlignmentRecord(
+                peak=result.record.peak, weight=result.record.weight, angle=float(angle),
+                peak_ratio=result.record.peak_ratio)
+            record.masked_ncc = result.ncc  # type: ignore[attr-defined]
+            best = (result.ncc, record)
+    return None if best is None else best[1]
+
+
 def EnsureMaxContrast(image: NDArray) -> NDArray:
     """
     Normalize an image into the ``[0, 1]`` intensity range.
@@ -6387,8 +6486,16 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
                       search_scale: bool = True,
                       use_gpu: bool | None = None,
                       rigid_transform: nornir_imageregistration.ITransform | None = None,
+                      target_mask: NDArray[np.bool_] | None = None,
+                      source_mask: NDArray[np.bool_] | None = None,
                       ) -> nornir_imageregistration.AlignmentRecord | None:
     """Run synchronous rigid-registration for one control point.
+
+    :param target_mask: Validity mask of *targetImage* (True = tissue). When either mask is given the
+        point is registered by masked NCC (:func:`AlignMaskedROIs`): masked and out-of-bounds pixels
+        take no part, nothing is noise-filled, scale is not searched and *estimate_angle* is ignored.
+        Without masks the noise-filled phase correlation runs as before.
+    :param source_mask: Validity mask of *sourceImage*.
 
     :param estimate_angle: If True, a log-polar estimate appends an angle to
         *anglesToSearch*. Pass False when the caller wants only the angles it
@@ -6425,7 +6532,17 @@ def AttemptAlignPoint(transform: nornir_imageregistration.ITransform,
 
     candidates: list[tuple[nornir_imageregistration.AlignmentRecord, NDArray, NDArray,
                           nornir_imageregistration.ITransform]] = []
+    masked = target_mask is not None or source_mask is not None
     for candidate_transform in candidate_transforms:
+        if masked:
+            target_image_roi, target_valid, source_image_roi, source_valid = BuildMaskedAlignmentROIs(
+                candidate_transform, targetImage, target_mask, sourceImage, source_mask,
+                target_controlpoint, alignmentArea)
+            masked_result = AlignMaskedROIs(target_image_roi, target_valid, source_image_roi, source_valid,
+                                            anglesToSearch)
+            if masked_result is not None:
+                candidates.append((masked_result, target_image_roi, source_image_roi, candidate_transform))
+            continue
         try:
             target_image_roi, source_image_roi = BuildAlignmentROIs(transform=candidate_transform,
                                                                     targetImage_param=targetImage,
