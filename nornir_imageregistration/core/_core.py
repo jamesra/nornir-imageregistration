@@ -2058,8 +2058,13 @@ def unlink_shared_memory(input: nornir_imageregistration.Shared_Mem_Metadata | m
             prettyoutput.LogErr(f"Missing memory block, could not unlink {input.name}")
 
 
-def _np_array_to_memmap_pool_file(host_arr: NDArray, read_only: bool) -> tuple[memmap_metadata, NDArray]:
-    """Copy *host_arr* to a temp file and open it as memmap for multiprocess pool handoff."""
+def _memmap_pool_file(shape: tuple, dtype: DTypeLike, read_only: bool,
+                      host_arr: NDArray | None = None) -> tuple[memmap_metadata, NDArray]:
+    """Create a temp-file memmap for multiprocess pool handoff, filled from *host_arr* or zeros.
+
+    The returned array is writable unless *host_arr* was given and *read_only* is set; *read_only* sets the mode
+    other processes open the file with. The file is deleted when the returned array is garbage collected or by
+    :func:`unlink_shared_memory`, so the creator must keep the array alive while workers use the file."""
     fallback_root = (
         os.environ.get("NORNIR_MEMMAP_POOL_DIR")
         or os.environ.get("TESTOUTPUTPATH")
@@ -2068,20 +2073,26 @@ def _np_array_to_memmap_pool_file(host_arr: NDArray, read_only: bool) -> tuple[m
     os.makedirs(fallback_root, exist_ok=True)
     fd, path = tempfile.mkstemp(prefix="nir-pool-", suffix=".shm-fallback", dir=fallback_root)
     os.close(fd)
-    shape_tuple = host_arr.shape
-    mmw = np.memmap(path, dtype=host_arr.dtype, shape=shape_tuple, mode="w+")
-    np.copyto(mmw, host_arr)
+    mmw = np.memmap(path, dtype=dtype, shape=shape, mode="w+")
+    if host_arr is not None:
+        np.copyto(mmw, host_arr)
     mmw.flush()
     del mmw
     mmap_mode = "r" if read_only else "r+"
-    mm = np.memmap(path, dtype=host_arr.dtype, shape=shape_tuple, mode=mmap_mode)
+    mm = np.memmap(path, dtype=dtype, shape=shape, mode="r" if read_only and host_arr is not None else "r+")
     meta = memmap_metadata(
         path,
-        shape=np.asarray(shape_tuple, dtype=np.int64),
-        dtype=host_arr.dtype,
+        shape=np.asarray(shape, dtype=np.int64),
+        dtype=np.dtype(dtype),
         mode=mmap_mode,
     )
     weakref.finalize(mm, _unlink_memmap_path_quiet, path)
+    return meta, mm
+
+
+def _np_array_to_memmap_pool_file(host_arr: NDArray, read_only: bool) -> tuple[memmap_metadata, NDArray]:
+    """Copy *host_arr* to a temp file and open it as memmap for multiprocess pool handoff."""
+    meta, mm = _memmap_pool_file(host_arr.shape, host_arr.dtype, read_only, host_arr)
     return meta, mm
 
 
@@ -2121,9 +2132,10 @@ def npArrayToSharedArray(input: NDArray, read_only: bool = True) -> tuple[
 
 def create_shared_memory_array(shape: nornir_imageregistration.ShapeLike, dtype: DTypeLike,
                                read_only: bool = True) -> tuple[
-    nornir_imageregistration.Shared_Mem_Metadata, NDArray]:
-    """Creates a shared memory block and copies the input array to shared memory.  This memory block must be unlinked
-    when it is no longer in use.
+    nornir_imageregistration.Shared_Mem_Metadata | memmap_metadata, NDArray]:
+    """Creates a zero-filled shared memory block (or a file-backed memmap if /dev/shm is too small, as
+    :func:`npArrayToSharedArray` does).  It must be released with :func:`unlink_shared_memory` when no longer in use.
+    The returned array is always writable; *read_only* sets how other processes attach.
 
     :param shape: Output shape.  Any shape-like is accepted: tuple, list, NumPy array or CuPy
         array.  The backing buffer is always host memory, so a device-resident shape is brought
@@ -2139,6 +2151,9 @@ def create_shared_memory_array(shape: nornir_imageregistration.ShapeLike, dtype:
 
     # shared_memory_manager = nornir_pools.get_or_create_shared_memory_manager()
     byte_size = int(np.prod(shape)) * np.dtype(dtype).itemsize
+    avail = _posix_dev_shm_avail_bytes()
+    if avail is not None and byte_size + _NP_POOL_SHM_HEADROOM > avail:
+        return _memmap_pool_file(shape, dtype, read_only)
     # shared_mem = shared_memory_manager.SharedMemory(size=int(byte_size))
     shared_mem = SharedMemory(size=int(byte_size), create=True)
     shared_array = np.ndarray(shape, dtype=dtype, buffer=shared_mem.buf)
