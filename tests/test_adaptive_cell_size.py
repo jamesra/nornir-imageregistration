@@ -41,6 +41,8 @@ def _role_counts(
         reject_reasons=[],
         lock_candidate=np.zeros(0, dtype=bool),
         zncc=np.zeros(0, dtype=np.float64),
+        zncc_prominence=np.zeros(0, dtype=np.float64),
+        zncc_decoy_med=np.zeros(0, dtype=np.float64),
         field_mode=FieldMode.LOCAL,
         n_reject=n_reject,
         n_free=n_free,
