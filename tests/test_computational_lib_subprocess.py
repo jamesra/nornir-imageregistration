@@ -145,6 +145,8 @@ class TestFreshSubprocessInit(unittest.TestCase):
             self.assertFalse(result["using_cupy"])
 
 
+@unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(),
+                     "fork pools exist only on POSIX (the Linux build hosts); Windows has no fork")
 class TestForkPoolWorkerCombinations(unittest.TestCase):
     """Fork-pool workers after each parent backend configuration."""
 
@@ -234,7 +236,9 @@ class TestForkPoolWorkerCombinations(unittest.TestCase):
 class TestSubprocessLaunchMatrix(unittest.TestCase):
     """Parametric matrix: requested backend x launch style."""
 
-    LAUNCH_STYLES = ("fresh_subprocess", "fork_pool_worker")
+    # fork pools exist only on POSIX (the Linux build hosts); on Windows only fresh subprocesses run.
+    LAUNCH_STYLES = (("fresh_subprocess", "fork_pool_worker")
+                     if "fork" in multiprocessing.get_all_start_methods() else ("fresh_subprocess",))
 
     def test_all_combinations(self):
         if init_computational_library is None:
