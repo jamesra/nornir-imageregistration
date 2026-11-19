@@ -14,10 +14,15 @@ _offsets = st.builds(TileOffset, _ids, _ids, _coords, _coords, _comments)
 
 
 def test_equal_offsets_are_not_unequal():
+    # An offset runs from A to B, so the same offset written B-first is negated (7569064).
     a = TileOffset(1, 2, 3.0, 4.0, "c")
-    b = TileOffset(2, 1, 3.0, 4.0, "c")
+    b = TileOffset(2, 1, -3.0, -4.0, "c")
     assert a == b
     assert operator.ne(a, b) is False
+
+
+def test_swapping_the_ids_without_negating_is_a_different_offset():
+    assert TileOffset(1, 2, 3.0, 4.0) != TileOffset(2, 1, 3.0, 4.0)
 
 
 def test_different_offsets_are_unequal():
