@@ -38,6 +38,7 @@ import skimage.filters
 from dataclasses import dataclass
 
 from nornir_imageregistration import AlignmentRecord, IgnoreUnderflow
+import nornir_imageregistration.masked_correlation
 import nornir_imageregistration.phasecorrelation
 from nornir_imageregistration.registration_control import (
     ProgressCallback,
@@ -984,6 +985,64 @@ def rotate_image(image: NDArray,
     return im_rotated
 
 
+def _scale_mask(mask: NDArray[np.bool_], scale_y: float, scale_x: float | None = None) -> NDArray[np.bool_]:
+    """Resample a validity mask with :func:`_scale_registration_image`, so it keeps the image's shape."""
+    if np.isclose(scale_y, 1.0) and (scale_x is None or np.isclose(scale_x, 1.0)):
+        return mask
+    return _scale_registration_image(mask.astype(np.float32), scale_y, scale_x) >= 0.5
+
+
+def _masked_translation_at_pose(target_image: NDArray, target_mask: NDArray[np.bool_],
+                                source_image: NDArray, source_mask: NDArray[np.bool_],
+                                angle: float, source_scale: float,
+                                min_overlap: float) -> NDArray[np.floating] | None:
+    """Translation of *source* over *target* at a fixed angle and scale, by band-pass + masked NCC.
+
+    Same frame and sign as :func:`ScoreOneAngle`'s peak. Only pixels valid in both masks are
+    compared, so masked tissue, extrema and the rotation corners don't take part (the noise fill
+    they get for phase correlation can pull its peak). Returns None when no shift has enough
+    overlap. Accepts NumPy or CuPy; the masks are moved to the images' backend.
+    """
+    xp = cp.get_array_module(target_image)
+    source_image = _coerce_to_source_module(source_image, xp)
+    target_mask = _coerce_to_source_module(target_mask, xp)
+    source_mask = _coerce_to_source_module(source_mask, xp)
+    if not np.isclose(source_scale, 1.0):
+        source_image = _scale_registration_image(source_image, source_scale)
+        source_mask = _scale_mask(source_mask, source_scale)
+    rotated = rotate_image(source_image, angle, None)
+    rotated_mask = _rotate_mask(source_mask, angle)
+    result = nornir_imageregistration.masked_correlation.masked_find_offset(
+        target_image, target_mask, rotated, rotated_mask, min_overlap_fraction=min_overlap)
+    if not np.isfinite(result.ncc):
+        return None
+    return np.asarray(result.record.peak, dtype=np.float64)
+
+
+_ROTATED_MASK_VALID_MIN = 0.99
+"""A rotated mask pixel is valid only when the interpolated mask is at least this. The image's
+rotation spline reaches a couple of pixels past a mask edge, and those pixels mix in fill."""
+
+
+def _rotate_mask(mask: NDArray[np.bool_], angle: float) -> NDArray[np.bool_]:
+    """Rotate a validity mask into the same frame and shape as :func:`rotate_image`.
+
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module``. Pixels outside the rotated source
+    (where :func:`rotate_image` puts noise) are False.
+    """
+    if angle == 0:
+        return mask
+    xp = cp.get_array_module(mask)
+    as_float = mask.astype(np.float32)
+    with IgnoreUnderflow():
+        if xp is not np:
+            rotated = _rotate_reshape_bucketed_cupy(as_float, -angle, cval=0.0)
+        else:
+            rotated = cupyx.scipy.get_array_module(as_float).ndimage.rotate(
+                as_float, axes=(1, 0), angle=-angle, cval=0.0)
+    return rotated >= _ROTATED_MASK_VALID_MIN
+
+
 def pad_and_rotate_image(image: NDArray,
                          angle: float,
                          image_stats: nornir_imageregistration.ImageStats | None,
@@ -1239,6 +1298,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
     target_stats = target_image_data.Stats
     source_stats = source_image_data.Stats
+    # Valid pixels (mask and extrema), kept for the masked translation at the final pose.
+    target_mask = target_image_data.BlendedMask
+    source_mask = source_image_data.BlendedMask
 
     del target_image_data
     del source_image_data
@@ -1259,6 +1321,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     metadata_scale_iso = _isotropic_scale_from_xy(metadata_scale_y, metadata_scale_x)
     if settings.source_image_scaling_required:
         source_image = _scale_registration_image(source_image, metadata_scale_y, metadata_scale_x)
+        source_mask = _scale_mask(source_mask, metadata_scale_y, metadata_scale_x)
         source_stats = nornir_imageregistration.ImageStats.CalcStats(source_image)
 
     detected_scale = 1.0
@@ -1273,6 +1336,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     if scalar != 1.0:
         target_image = nornir_imageregistration.ScaleImage(target_image, scalar)
         source_image = nornir_imageregistration.ScaleImage(source_image, scalar)
+        target_mask = _scale_mask(target_mask, scalar)
+        source_mask = _scale_mask(source_mask, scalar)
 
     def _find_logpolar_with_fallback(candidate_source_image: NDArray[np.floating]) -> AngleScaleResult:
         global _last_hybrid_fallback_stats
@@ -1394,6 +1459,16 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             force_search=force_scale_search,
         )
 
+    def _final_peak(candidate_source: NDArray[np.floating], flipped_ud: bool, angle: float,
+                    source_scale: float, phase_peak: NDArray[np.floating]) -> NDArray[np.floating]:
+        """The translation at the chosen pose by masked NCC; the phase-correlation peak if no shift qualifies."""
+        mask = source_mask
+        if flipped_ud:
+            mask = cp.get_array_module(mask).ascontiguousarray(mask[::-1])
+        peak = _masked_translation_at_pose(target_image, target_mask, candidate_source, mask, angle,
+                                           source_scale, settings.min_overlap)
+        return phase_peak if peak is None else peak
+
     def _finalize_logpolar_candidate(
             candidate_source: NDArray[np.floating],
             seed: AngleScaleResult,
@@ -1435,7 +1510,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             min_overlap=settings.min_overlap,
             source_scale=detected)
         _record = nornir_imageregistration.AlignmentRecord(
-            peak=translation_results.peak,
+            peak=_final_peak(candidate_source, flipped_ud, final_angle, detected, translation_results.peak),
             weight=translation_results.weight,
             angle=final_angle,
             flipped_ud=flipped_ud,
@@ -1495,7 +1570,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             min_overlap=settings.min_overlap,
             source_scale=detected)
         return nornir_imageregistration.AlignmentRecord(
-            peak=translation_results.peak,
+            peak=_final_peak(candidate_source, flipped_ud, float(refined.angle), detected,
+                             translation_results.peak),
             weight=translation_results.weight,
             angle=float(refined.angle),
             flipped_ud=flipped_ud,
