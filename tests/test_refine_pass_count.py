@@ -20,6 +20,11 @@ requested passes.
 Asserted on the highest pass number reached rather than the number of progress
 reports, because a separate defect can re-report a pass (see the duplicate
 ``pass 1`` in the review's ``C03-B008``), nondeterministically.
+
+Since 6762090 the trusted-mesh path may also stop early, on purpose, when the trusted
+set does not change ("trusted-mesh: trusted set unchanged; stopping early"). A run
+shorter than requested passes only when that stop was announced on its last pass;
+any other short run is the off-by-one coming back.
 """
 from __future__ import annotations
 
@@ -29,6 +34,9 @@ import tempfile
 import unittest
 
 from nornir_imageregistration import local_distortion_correction as ldc
+from nornir_shared import prettyoutput
+
+_EARLY_STOP = 'trusted set unchanged; stopping early'
 
 _FIXTURE = os.path.join(
     os.path.dirname(__file__), 'fixtures', 'idoc_690_691', 'StosBrute16',
@@ -39,10 +47,12 @@ _FIXTURE = os.path.join(
 _CELL = 256
 
 
-def _passes_reached(num_iterations: int, cell: int = _CELL) -> list[int]:
-    """Run refine and return the pass numbers it announced."""
+def _run(num_iterations: int, cell: int = _CELL) -> tuple[list[int], int | None]:
+    """Run refine; return the pass numbers it announced and the pass that announced an early stop."""
     seen: list[int] = []
+    early_stop: list[int] = []
     original = ldc.report_progress
+    original_log = prettyoutput.Log
 
     def spy(callback, current, total, label, *args, **kwargs):
         match = re.match(r'Refine pass (\d+)/(\d+)', str(label))
@@ -50,7 +60,13 @@ def _passes_reached(num_iterations: int, cell: int = _CELL) -> list[int]:
             seen.append(int(match.group(1)))
         return original(callback, current, total, label, *args, **kwargs)
 
+    def log_spy(text=None, *args, **kwargs):
+        if text is not None and _EARLY_STOP in str(text) and seen:
+            early_stop.append(seen[-1])
+        return original_log(text, *args, **kwargs)
+
     ldc.report_progress = spy
+    prettyoutput.Log = log_spy
     try:
         with tempfile.TemporaryDirectory() as output_dir:
             ldc.RefineStosFile(
@@ -66,23 +82,35 @@ def _passes_reached(num_iterations: int, cell: int = _CELL) -> list[int]:
                 min_unmasked_area=0.49)
     finally:
         ldc.report_progress = original
-    return seen
+        prettyoutput.Log = original_log
+    return seen, (early_stop[-1] if early_stop else None)
+
+
+def _passes_reached(num_iterations: int, cell: int = _CELL) -> list[int]:
+    """Run refine and return the pass numbers it announced."""
+    return _run(num_iterations, cell)[0]
 
 
 @unittest.skipUnless(os.path.isfile(_FIXTURE), f'Bundled STOS fixture missing: {_FIXTURE}')
 class TestRefineRunsEveryRequestedPass(unittest.TestCase):
 
-    def test_four_iterations_run_four_passes(self):
-        """The reproducing case: this reached only pass 3 before the fix."""
-        passes = _passes_reached(4)
+    def _assert_all_passes_or_announced_stop(self, requested: int) -> None:
+        passes, early_stop_pass = _run(requested)
 
         self.assertTrue(passes, 'no refine passes were announced')
-        self.assertEqual(max(passes), 4, f'refine stopped at pass {max(passes)} of 4: {passes}')
+        if max(passes) < requested:
+            self.assertEqual(early_stop_pass, max(passes),
+                             f'refine stopped at pass {max(passes)} of {requested} without '
+                             f'announcing an early stop: {passes}')
+        else:
+            self.assertEqual(max(passes), requested)
+
+    def test_four_iterations_run_four_passes(self):
+        """The reproducing case: this reached only pass 3 before the fix."""
+        self._assert_all_passes_or_announced_stop(4)
 
     def test_five_iterations_run_five_passes(self):
-        passes = _passes_reached(5)
-
-        self.assertEqual(max(passes), 5, f'refine stopped at pass {max(passes)} of 5: {passes}')
+        self._assert_all_passes_or_announced_stop(5)
 
     def test_passes_are_announced_in_order(self):
         passes = _passes_reached(4)
