@@ -8,6 +8,7 @@ import os
 import pickle
 
 import numpy as np
+import pytest
 
 import nornir_imageregistration
 import nornir_imageregistration.arrange_mosaic
@@ -29,6 +30,8 @@ class TestMosaicTilesetTileOffsets(setup_imagetest.TransformTestBase):
     def TestName(self):
         return self.__class__.__name__
 
+    # Input: <TESTINPUTPATH>/Transforms/TestMosaicTilesetTileOffsets/RC3/... (not in the shared corpus copy).
+    @pytest.mark.needs_data
     def test_Alignment_RC3_0001(self):
         volume_dir = os.path.join(self.TestInputDataPath, "RC3", "TEM", "0001", "TEM")
 
@@ -104,11 +107,13 @@ class TestBasicTileAlignment(setup_imagetest.TransformTestBase):
         self.RunAlignment(Tile1Filename, Tile2Filename, (2 / Downsample, 1260 / Downsample), epsilon=1.5,
                           min_overlap=0.05)
 
+    # Input: D:\Data\miniRCx1, a local volume outside the test corpus.
+    @pytest.mark.needs_data
     def test_alignment_cmp(self):
         Downsample = 2.0
         DownsampleString = "%03d" % Downsample
 
-        self.TilesPath = os.path.join("D:", "Data", "miniRCx1", "TEM", "0004", "E", "ShadingCorrected", "TilePyramid",
+        self.TilesPath = os.path.join("D:" + os.sep, "Data", "miniRCx1", "TEM", "0004", "E", "ShadingCorrected", "TilePyramid",
                                       DownsampleString)
 
         Tile15Filename = "Tile000015.png"
