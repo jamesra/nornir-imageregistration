@@ -1,9 +1,11 @@
 from __future__ import annotations
 import collections
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import logging
 import os
+import time
 import typing
 
 import numpy as np
@@ -20,6 +22,34 @@ logger = logging.getLogger(__name__)
 
 # Threads decoding tile images ahead of the strips that need them (PNG decode releases the GIL)
 _PREFETCH_WORKERS = 4
+
+# A CuPy strip that runs out of device memory is retried after this process returns its cached blocks, once per
+# wait. Several assembly processes can share one GPU and each CuPy pool keeps its peak, so the memory is often free
+# a little later; the waits give another process time to finish its strip. After the last wait the error is raised.
+_GPU_OOM_RETRY_WAITS_S: tuple[float, ...] = (5.0, 30.0, 120.0)
+
+
+def _is_gpu_out_of_memory(exc: BaseException) -> bool:
+    """True for a CUDA allocation failure: CuPy's OutOfMemoryError, or a cuFFT/cuBLAS/CUDA allocation error."""
+    out_of_memory_error = getattr(getattr(getattr(nornir_imageregistration.cp, 'cuda', None), 'memory', None),
+                                  'OutOfMemoryError', None)
+    if isinstance(out_of_memory_error, type) and isinstance(exc, out_of_memory_error):
+        return True
+    text = str(exc)
+    return any(marker in text for marker in ('out of memory', 'CUFFT_ALLOC_FAILED', 'cudaErrorMemoryAllocation',
+                                             'CUBLAS_STATUS_ALLOC_FAILED'))
+
+
+def _release_gpu_cache() -> None:
+    """Return this process's cached CuPy device and pinned blocks to the driver, so other processes can use them."""
+    cp = nornir_imageregistration.cp
+    pool = getattr(cp, 'get_default_memory_pool', None)
+    if pool is None:
+        return
+    pool().free_all_blocks()
+    pinned_pool = getattr(cp, 'get_default_pinned_memory_pool', None)
+    if pinned_pool is not None:
+        pinned_pool().free_all_blocks()
 
 
 def _assemble_serial_gpu_enabled() -> bool:
@@ -451,7 +481,35 @@ class MosaicTileset(typing.Dict[int, nornir_imageregistration.Tile]):
                         prefetch_ahead()
 
                         task, iColumn, working_image_grid_dims = pending.popleft()
-                        working_image, working_mask = task.result()
+                        oom_retries = 0
+                        while True:
+                            try:
+                                working_image, working_mask = task.result()
+                                break
+                            except Exception as exc:
+                                if not use_cp or not _is_gpu_out_of_memory(exc)                                         or oom_retries >= len(_GPU_OOM_RETRY_WAITS_S):
+                                    raise
+                            # CuPy strips assemble one at a time, so nothing else of this process is on the GPU but
+                            # the decoded tile images. Stop prefetching, drop every decoded image (the strip reloads
+                            # what it needs), return the cached blocks, wait, and assemble the strip again.
+                            wait_s = _GPU_OOM_RETRY_WAITS_S[oom_retries]
+                            oom_retries += 1
+                            prefetch_strips = 0
+                            for prefetch_future in prefetch_futures:
+                                prefetch_future.cancel()
+                            concurrent.futures.wait(list(prefetch_futures))
+                            prefetch_futures.clear()
+                            for strip_tiles in tiles_of_strip[consumed_strips:]:
+                                for strip_tile in strip_tiles:
+                                    strip_tile.ReleaseLoadedImage()
+                            _release_gpu_cache()
+                            logger.warning(
+                                "GPU out of memory assembling strip at column %d; released cached GPU memory and "
+                                "stopped prefetching, retry %d of %d in %.0f s",
+                                iColumn, oom_retries, len(_GPU_OOM_RETRY_WAITS_S), wait_s)
+                            time.sleep(wait_s)
+                            task = executor.submit(self.AssembleImage, FixedRegion=strips[consumed_strips][2],
+                                                   target_space_scale=target_space_scale)
                         del task
                         # No later strip covers these tiles, and this strip is assembled: free their images.
                         for finished_tile in tiles_ending_in_strip.pop(consumed_strips, ()):
