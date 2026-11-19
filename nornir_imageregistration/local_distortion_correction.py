@@ -4205,12 +4205,15 @@ def _compute_zncc_for_candidates(
                 alignmentArea=settings.cell_size,
                 defer_oob_check=False)
             fixed_roi = rois[0]
-            moving_roi = rois[1]
+            # BuildAlignmentROIs follows the process backend (CuPy in a CuPy session); stay on it, as
+            # the batched path does. np.asarray here failed every candidate under CuPy.
+            roi_xp = cp.get_array_module(fixed_roi)
+            moving_roi = _ensure_on_array_module(rois[1], roi_xp)
             nan_mask = rois[2] if len(rois) > 2 else None
-            valid = None if nan_mask is None else ~np.asarray(nan_mask, dtype=bool)
-            fixed_stack = np.asarray(fixed_roi)[None, ...]
-            moving_stack = np.asarray(moving_roi)[None, ...]
-            mask_stack = None if valid is None else np.asarray(valid)[None, ...]
+            valid = None if nan_mask is None else ~roi_xp.asarray(nan_mask, dtype=bool)
+            fixed_stack = fixed_roi[None, ...]
+            moving_stack = moving_roi[None, ...]
+            mask_stack = None if valid is None else valid[None, ...]
             z_peak, z_med, z_max, prom = _zncc_prominence_stack(
                 fixed_stack, moving_stack, peaks[i:i + 1],
                 valid_mask=mask_stack,

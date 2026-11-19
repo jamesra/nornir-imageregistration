@@ -15,6 +15,10 @@ measured.
 The role outcome is unchanged -- ``classify_roles`` fails closed on a missing key
 just as it does on a sub-threshold one -- so this is about not fabricating
 evidence, and about being able to see the failure at all.
+
+Since 74d1608 the batched and per-candidate paths share ``_zncc_prominence_stack``
+and return ``ZnccScore`` records: a batched-only failure is simulated by breaking
+``BuildAlignmentROIsBatched``, and a total failure by breaking the shared scorer.
 """
 from __future__ import annotations
 
@@ -104,30 +108,30 @@ class TestHealthyPathIsUnchanged(_ZnccCase):
 
         for key, score in scores.items():
             with self.subTest(key=key):
-                self.assertAlmostEqual(score, 1.0, places=5)
+                self.assertAlmostEqual(score.peak, 1.0, places=5)
 
 
 class TestBatchedFailureIsVisibleAndRecovers(_ZnccCase):
 
     def test_failure_is_logged(self):
-        _scores, logged = self._score(_masked_zncc_stack=_boom)
+        _scores, logged = self._score(BuildAlignmentROIsBatched=_boom)
 
         self.assertEqual(len(logged), 1)
         self.assertIn('Batched ZNCC failed', logged[0])
 
     def test_per_candidate_fallback_still_produces_scores(self):
-        scores, _logged = self._score(_masked_zncc_stack=_boom)
+        scores, _logged = self._score(BuildAlignmentROIsBatched=_boom)
 
         self.assertEqual(set(scores.keys()), _candidate_ids())
         for score in scores.values():
-            self.assertAlmostEqual(score, 1.0, places=5)
+            self.assertAlmostEqual(score.peak, 1.0, places=5)
 
 
 class TestUnmeasurableCandidateIsNotScoredZero(_ZnccCase):
 
     def test_key_is_absent_rather_than_zero(self):
         scores, _logged = self._score(
-            _masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+            _zncc_prominence_stack=_boom)
 
         self.assertEqual(scores, {})
         for key in _candidate_ids():
@@ -135,7 +139,7 @@ class TestUnmeasurableCandidateIsNotScoredZero(_ZnccCase):
 
     def test_every_failure_is_logged(self):
         _scores, logged = self._score(
-            _masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+            _zncc_prominence_stack=_boom)
 
         # One for the batched attempt, one per candidate.
         self.assertEqual(len(logged), 1 + len(_POINTS))
@@ -151,7 +155,7 @@ class TestUnmeasurableCandidateIsNotScoredZero(_ZnccCase):
         ldc._ZNCC_FAILURE_LOG_LIMIT = 1
         try:
             _scores, logged = self._score(
-                _masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+                _zncc_prominence_stack=_boom)
         finally:
             ldc._ZNCC_FAILURE_LOG_LIMIT = original_limit
 
@@ -169,7 +173,7 @@ class TestUnmeasurableCandidateIsNotScoredZero(_ZnccCase):
 
         self.assertEqual(set(scores.keys()), _candidate_ids())
         for score in scores.values():
-            self.assertEqual(score, 0.0)
+            self.assertEqual(score.peak, 0.0)
         self.assertEqual(logged, [])
 
 
@@ -185,7 +189,7 @@ class TestConsumerStillFailsClosed(_ZnccCase):
             identity_zncc_min=0.25)
 
     def test_unmeasurable_cells_are_identity_suspect(self):
-        scores, _ = self._score(_masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+        scores, _ = self._score(_zncc_prominence_stack=_boom)
 
         result = self._classify(scores)
 
@@ -193,7 +197,7 @@ class TestConsumerStillFailsClosed(_ZnccCase):
 
     def test_unmeasurable_cells_are_not_counted_as_evaluated(self):
         """The old fabricated 0.0 was counted in n_zncc_eval as a real measurement."""
-        scores, _ = self._score(_masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+        scores, _ = self._score(_zncc_prominence_stack=_boom)
 
         result = self._classify(scores)
 
@@ -201,7 +205,7 @@ class TestConsumerStillFailsClosed(_ZnccCase):
         self.assertEqual(result.n_zncc_fail, len(_POINTS))
 
     def test_reported_score_is_nan_not_zero(self):
-        scores, _ = self._score(_masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+        scores, _ = self._score(_zncc_prominence_stack=_boom)
 
         result = self._classify(scores)
 
@@ -209,7 +213,7 @@ class TestConsumerStillFailsClosed(_ZnccCase):
                         'a score that was never measured must not read as 0.0')
 
     def test_diagnostics_report_nan_for_a_missing_key(self):
-        scores, _ = self._score(_masked_zncc_stack=_boom, _zncc_at_claimed_peak=_boom)
+        scores, _ = self._score(_zncc_prominence_stack=_boom)
 
         # pass_diagnostics resolves absent keys this way.
         value = scores.get((0, 0), float('nan'))
