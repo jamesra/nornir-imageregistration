@@ -419,11 +419,9 @@ class TestLogPolarAngleConvention(setup_imagetest.ImageTestBase):
 
         pyre_np = _run(nornir_imageregistration.ComputationLib.numpy, pyre_settings)
         legacy_np = _run(nornir_imageregistration.ComputationLib.numpy, legacy_align_settings)
-        self.assertGreater(
-            abs(_wrap_angle_diff(float(pyre_np.angle), float(legacy_np.angle))),
-            1.0,
-            "Expected Pyre vs legacy Align defaults to differ on 690/691",
-        )
+        # This used to assert that the two settings disagree by more than 1 degree on 690/691. That
+        # recorded a past result, not intended behaviour: since b5e6476 (#259, soft log-polar seeds
+        # refined by ScoreOneAngle) both settings find the same angle. The gate here is backend parity.
 
         if nornir_imageregistration.HasCupy():
             pyre_cp = _run(nornir_imageregistration.ComputationLib.cupy, pyre_settings)
