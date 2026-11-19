@@ -40,6 +40,16 @@ class TestEstimateNoiseSigma(unittest.TestCase):
         with self.assertRaises(ValueError):
             noise_crush.section_sigma([])
 
+    def test_section_sigma_ignores_tiles_without_noise(self) -> None:
+        """Overexposed tiles estimate 0; the section sigma comes from the tiles that have noise."""
+        self.assertEqual(noise_crush.section_sigma([0.0, 0.0, 0.0, 10.0, 12.0]), 11.0)
+        self.assertEqual(noise_crush.section_sigma([0.0, 0.0]), 0.0)
+
+    def test_overexposed_tile_has_no_measurable_noise(self) -> None:
+        rng = np.random.default_rng(3)
+        image = np.minimum(rng.normal(60000.0, 40.0, (512, 512)), 59900).astype(np.uint16)
+        self.assertEqual(noise_crush.estimate_noise_sigma(image), 0.0)
+
     def test_sample_indices_spread_and_cap(self) -> None:
         self.assertEqual(noise_crush.sample_indices(5, 16), [0, 1, 2, 3, 4])
         picked = noise_crush.sample_indices(100, 16)
@@ -64,8 +74,37 @@ class TestCrushParams(unittest.TestCase):
         self.assertEqual(params.offset, -124)
         self.assertEqual(noise_crush.make_crush_params(10.0, 5000, np.uint16, section_min=-123.4).offset, 0)
 
+    def test_clipped_pixels_keep_one_code_whatever_the_gain(self) -> None:
+        """RC3 1606: pure-65535 film divided by each tile's gain landed on a different code per tile (stripes)."""
+        params = CrushParams(k=2.5, step=377, sigma=150.8, offset=0, bits=9, source_dtype='uint16')
+        image = np.array([[65535, 30000]], dtype=np.uint16)
+        expected_clip = 65535 // 377
+        for gain in (0.314, 0.641, 1.0, 2.099):
+            codes = noise_crush.crush(image, params, gain)
+            self.assertEqual(int(codes[0, 0]), expected_clip, gain)
+            self.assertEqual(int(codes[0, 1]), min(expected_clip, int(30000 / gain // 377)), gain)
+
+    def test_no_divided_pixel_codes_above_the_clip(self) -> None:
+        """RC3 1606: near-clipped film divided by gain ~0.5 coded brighter than clipped film (a band ramping to white)."""
+        params = CrushParams(k=2.5, step=377, sigma=150.8, offset=0, bits=8, source_dtype='uint16')
+        image = np.array([[65535, 65000, 20000]], dtype=np.uint16)
+        codes = noise_crush.crush(image, params, 0.5)
+        self.assertEqual(codes.tolist(), [[173, 173, int(40000 // 377)]])
+
+    def test_clipped_fraction(self) -> None:
+        image = np.array([[65535, 65535, 1, 2]], dtype=np.uint16)
+        self.assertEqual(noise_crush.clipped_fraction(image), 0.5)
+        self.assertEqual(noise_crush.clipped_fraction(image.astype(np.int32)), 0.0)
+
+    def test_zero_sigma_is_lossless(self) -> None:
+        """An overexposed section (sigma 0) crushes with step 1 instead of failing the import."""
+        params = noise_crush.make_crush_params(0.0, 59900, np.uint16)
+        self.assertEqual((params.step, params.bits), (1, 16))
+        codes = np.array([[0, 1234, 59900]], dtype=np.uint16)
+        np.testing.assert_array_equal(noise_crush.crush(codes, params), codes)
+
     def test_rejects_bad_sigma(self) -> None:
-        for sigma in (0.0, -1.0, float('nan')):
+        for sigma in (-1.0, float('nan'), float('inf')):
             with self.assertRaises(ValueError):
                 noise_crush.make_crush_params(sigma, 1000, np.uint16)
 
