@@ -10,6 +10,7 @@ import sys
 
 from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
 from nornir_imageregistration.scripts._cli_paths import ensure_output_parent_dir
+from nornir_imageregistration.scripts._cli_use_error import exit_on_use_error
 import nornir_imageregistration.stos_brute as sb
 import nornir_shared.misc
 
@@ -81,6 +82,10 @@ def Execute(ExecArgs=None):
     (Args, extra) = ParseArgs(ExecArgs)
 
     stosArgs = StosOverrideArgs(Args)
+    if not stosArgs.ControlMask or not stosArgs.WarpedMask:
+        # Every .stos registration uses the Assemble masks (James, 2026-11-20).
+        exit_on_use_error(__CreateArgParser(), __name__,
+                          "Both masks are required: give an input .stos that names them, or -fm and -wm.")
 
     ensure_output_parent_dir(Args.outputpath)
 
@@ -91,20 +96,13 @@ def Execute(ExecArgs=None):
                                                    MinOverlap=Args.min_overlap,
                                                    TestFlip=Args.testflip)
 
-    if not (stosArgs.ControlMask is None or stosArgs.WarpedMask is None):
-        stos = alignRecord.ToStos(stosArgs.ControlImage,
-                                  stosArgs.WarpedImage,
-                                  stosArgs.ControlMask,
-                                  stosArgs.WarpedMask,
-                                  PixelSpacing=1)
+    stos = alignRecord.ToStos(stosArgs.ControlImage,
+                              stosArgs.WarpedImage,
+                              stosArgs.ControlMask,
+                              stosArgs.WarpedMask,
+                              PixelSpacing=1)
 
-        stos.Save(Args.outputpath)
-    else:
-        stos = alignRecord.ToStos(ImagePath=stosArgs.ControlImage,
-                                  WarpedImagePath=stosArgs.WarpedImage,
-                                  PixelSpacing=1)
-
-        stos.Save(Args.outputpath, AddMasks=False)
+    stos.Save(Args.outputpath)
 
     # self.assertTrue(os.path.exists(stosArgs.stosOutput), "No output stos file created")
 

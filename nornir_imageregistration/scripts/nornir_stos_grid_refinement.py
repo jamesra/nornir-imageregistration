@@ -15,6 +15,7 @@ import nornir_imageregistration
 import nornir_imageregistration.local_distortion_correction
 from nornir_imageregistration.files.stos_override_args import StosOverrideArgs
 from nornir_imageregistration.scripts._cli_paths import ensure_output_parent_dir
+from nornir_imageregistration.scripts._cli_use_error import exit_on_use_error
 
 
 def __CreateArgParser(ExecArgs=None):
@@ -113,6 +114,10 @@ def Execute(ExecArgs=None):
 
     stosArgs = StosOverrideArgs(Args)
     inputStos = stosArgs.MergeStosAndArgs(Args)
+    if not inputStos.ControlMaskFullPath or not inputStos.MappedMaskFullPath:
+        # Every .stos registration uses the Assemble masks (James, 2026-11-20).
+        exit_on_use_error(__CreateArgParser(), __name__,
+                          "Both masks are required: the input .stos must name them, or give -fm and -wm.")
 
     ensure_output_parent_dir(Args.outputpath)
 
