@@ -271,7 +271,22 @@ class TestCore(setup_imagetest.ImageTestBase):
         extrema_mask = np.logical_not(np.logical_or(image == maxima, image == minima))
         mask = nornir_imageregistration.CreateExtremaMask(image, size_cutoff=0.001)
         self.assertIsNotNone(updatedImage)
-        self.assertFalse((image == updatedImage).all())
+        # Every saturated region in this image is smaller than the default size_cutoff (0.001 of the
+        # image), so they are kept as tissue (e.g. saturated cells) and nothing is replaced.
+        self.assertTrue((nornir_imageregistration.EnsureNumpyArray(image) ==
+                         nornir_imageregistration.EnsureNumpyArray(updatedImage)).all(),
+                        "Small extrema regions must not be replaced at the default size_cutoff")
+
+        # A large saturated region (a quarter of the image) is above the cutoff and must be replaced.
+        large = np.array(nornir_imageregistration.EnsureNumpyArray(image), dtype=np.float32, copy=True)
+        half_y, half_x = large.shape[0] // 2, large.shape[1] // 2
+        large[:half_y, :half_x] = 0
+        updated_large = nornir_imageregistration.EnsureNumpyArray(
+            nornir_imageregistration.ReplaceImageExtremaWithNoise(large))
+        self.assertGreater(np.mean(updated_large[:half_y, :half_x] != 0), 0.9,
+                           "A large extrema region must be replaced with noise")
+        np.testing.assert_array_equal(large[half_y:, half_x:], updated_large[half_y:, half_x:],
+                                      err_msg="Pixels away from the large region keep their values")
 
         self.assertTrue(nornir_imageregistration.ShowGrayscale((image, extrema_mask, updatedImage, mask),
                                                                title="Image should have extrema values removed, but not small regions saturated cells.\nTop mask should mark all extrema.  Bottom mask should remove small extrema regions.",
