@@ -472,7 +472,7 @@ class TestSearchExecutionRouting(_EnvIsolated):
                 self.assertGreaterEqual(len({id(c[0]) for c in calls}), 2, 'upright and flipped sweeps')
                 for _scorer, _angles, _scale, execution in calls:
                     self.assertIs(self.event, execution.cancel_event)
-                    self.assertIs(self.callback, execution.progress_callback)
+                    self.assertIs(self.callback, _caller_callback(execution))
                 if not search_scale:
                     self.assertEqual(1.0, calls[0][2])
 
@@ -510,10 +510,50 @@ class TestSearchExecutionRouting(_EnvIsolated):
         self.assertEqual(3, len(sweeps), 'adaptive, widened and full-sweep fallback passes')
         for scorer, _angles, source_scale, execution in sweeps:
             self.assertIs(self.event, execution.cancel_event)
-            self.assertIs(self.callback, execution.progress_callback)
+            self.assertIs(self.callback, _caller_callback(execution))
             self.assertEqual(1.0, source_scale)
             self.assertIs(sweeps[0][0], scorer, 'one scorer, built once for the upright source')
         self.assertEqual([0.0, 10.0, 20.0, 30.0], sorted(sweeps[2][1]))
+
+
+def _caller_callback(execution):
+    """The caller's progress callback behind the whole-registration bar (``_ProgressSpan``)."""
+    span = execution.progress_callback
+    assert isinstance(span, stos_brute._ProgressSpan), type(span)
+    return span._callback
+
+
+class TestWholeRegistrationProgress(unittest.TestCase):
+    """One bar for the whole brute, which never goes back (James, 2026-11-20, "96) Yes")."""
+
+    def test_the_bar_only_moves_forward_over_every_sweep(self):
+        rng = np.random.default_rng(3)
+        target = rng.random((64, 72)).astype(np.float32)
+        source = rng.random((60, 66)).astype(np.float32)
+        reports: list[tuple[int, int, str]] = []
+        stos_brute.SliceToSliceRigidRegistration(
+            target, source, AngleSearchRange=[0.0, 10.0, 20.0],
+            method=SliceToSliceMethod.BruteForce, search_scale=True, MinOverlap=0.5,
+            SingleThread=True, progress_callback=lambda c, t, label: reports.append((c, t, label)),
+            use_gpu=False)
+        self.assertGreater(len(reports), 20, 'several sweeps reported')
+        self.assertEqual({stos_brute._PROGRESS_STEPS}, {t for _c, t, _l in reports})
+        shown = [c for c, _t, _l in reports]
+        self.assertEqual(sorted(shown), shown, 'never moves backwards')
+        self.assertGreater(shown[-1], 0.9 * stos_brute._PROGRESS_STEPS)
+        self.assertTrue(any(label.startswith('Flipped: ') for _c, _t, label in reports))
+        self.assertTrue(any('scale 2/' in label for _c, _t, label in reports))
+
+    def test_a_nested_slice_maps_into_its_parent(self):
+        reports: list[tuple[int, int, str]] = []
+        span = stos_brute._ProgressSpan(lambda c, t, label: reports.append((c, t, label)))
+        saved = span.push(0.5, 1.0, 'A: ')
+        inner = span.push(0.0, 0.5, 'b: ')
+        span(1, 2, 'x')
+        span.restore(inner)
+        span.restore(saved)
+        self.assertEqual([(625, 1000, 'A: b: x')], reports)
+
 
 class TestDecimationScale(unittest.TestCase):
 

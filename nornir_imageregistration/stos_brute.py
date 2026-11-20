@@ -394,6 +394,66 @@ class _SearchExecution:
     use_gpu: bool | None = None
 
 
+# Resolution of the whole-registration progress bar.
+_PROGRESS_STEPS = 1000
+# Share of an orientation's progress given to its search; the rest is the angle/scale refine.
+_SEARCH_PROGRESS_SHARE = 0.85
+
+
+class _ProgressSpan:
+    """One progress bar for a whole registration, fed by sweeps that each count from 1.
+
+    Every angle sweep reports its own ``(current, total)``: one per scale candidate, then the
+    refines, then all of it again for the flipped image. Passed through, the bar went back to
+    0 more than 20 times in one run and looked like a loop (James, 2026-11-20). Each stage
+    sets the slice of the bar it owns (:meth:`push`), sweeps fill that slice, and the bar
+    never moves backwards. The label gets the stage prefix, e.g. ``Flipped: scale 3/11: ``.
+    """
+
+    def __init__(self, callback: ProgressCallback) -> None:
+        self._callback = callback
+        self._lo = 0.0
+        self._hi = 1.0
+        self._prefix = ''
+        self._shown = 0
+
+    def push(self, lo: float, hi: float, prefix: str = '') -> tuple[float, float, str]:
+        """Narrow the current slice to its [lo, hi] fraction; returns what :meth:`restore` needs."""
+        saved = (self._lo, self._hi, self._prefix)
+        width = self._hi - self._lo
+        self._lo, self._hi = self._lo + lo * width, self._lo + hi * width
+        self._prefix = self._prefix + prefix
+        return saved
+
+    def restore(self, saved: tuple[float, float, str]) -> None:
+        self._lo, self._hi, self._prefix = saved
+
+    def __call__(self, current: int, total: int, label: str, preview: object = None) -> None:
+        fraction = min(max(float(current) / float(total), 0.0), 1.0) if total > 0 else 0.0
+        step = int(round((self._lo + (self._hi - self._lo) * fraction) * _PROGRESS_STEPS))
+        self._shown = max(self._shown, step)
+        report_progress(self._callback, self._shown, _PROGRESS_STEPS, self._prefix + label, preview)
+
+
+def _push_progress(execution: _SearchExecution, lo: float, hi: float,
+                   prefix: str = '') -> tuple[float, float, str] | None:
+    """:meth:`_ProgressSpan.push` on *execution*'s bar; None when it has none."""
+    span = execution.progress_callback
+    return span.push(lo, hi, prefix) if isinstance(span, _ProgressSpan) else None
+
+
+def _show_flipped_refine(span: _ProgressSpan | None) -> None:
+    """Give the flipped image's angle/scale refine the last slice of the bar."""
+    if span is not None:
+        span.restore((0.5 + 0.5 * _SEARCH_PROGRESS_SHARE, 1.0, "Flipped: refine: "))
+
+
+def _restore_progress(execution: _SearchExecution, saved: tuple[float, float, str] | None) -> None:
+    span = execution.progress_callback
+    if saved is not None and isinstance(span, _ProgressSpan):
+        span.restore(saved)
+
+
 def _scale_at_final_angle(
         pair: _RegistrationPair,
         final_angle: float,
@@ -1370,7 +1430,12 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         *,
         use_gpu: bool | None = None) -> nornir_imageregistration.AlignmentRecord:
     use_cp = _use_cupy_for_scoring(use_gpu)
-    execution = _SearchExecution(SingleThread, Cluster, cancel_event, progress_callback, use_gpu)
+    progress_span = _ProgressSpan(progress_callback) if progress_callback is not None else None
+    execution = _SearchExecution(SingleThread, Cluster, cancel_event, progress_span, use_gpu)
+    # Upright gets the whole bar, or the first half when the flipped image is searched too.
+    upright_share = 0.5 if settings.try_flipped else 1.0
+    orientation_prefix = "Upright: " if settings.try_flipped else ""
+    _push_progress(execution, 0.0, upright_share * _SEARCH_PROGRESS_SHARE, orientation_prefix)
 
     target_image = target_image_data.ImageWithMaskAsNoise
     source_image = source_image_data.ImageWithMaskAsNoise
@@ -1673,6 +1738,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     upright_source = source_image
     upright_seed = best_match
     upright_scale = float(detected_scale)
+    if progress_span is not None:
+        progress_span.restore((upright_share * _SEARCH_PROGRESS_SHARE, upright_share,
+                               orientation_prefix + "refine: "))
 
     # Finalize upright before any flipped LogPolar call so hybrid-fallback
     # globals still describe the upright seed.
@@ -1684,11 +1752,14 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
 
     best_refined_match = upright_final
     if settings.try_flipped:
+        if progress_span is not None:
+            progress_span.restore((0.5, 0.5 + 0.5 * _SEARCH_PROGRESS_SHARE, "Flipped: "))
         if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
             host_xp = cp.get_array_module(host_source_for_flip)
             flipped_host = host_xp.flipud(host_source_for_flip)
             flipped_seed = _find_logpolar_with_fallback(flipped_host, True)
             flipped_source = _ensure_device_for_scoring(flipped_host)
+            _show_flipped_refine(progress_span)
             flipped_final = _finalize_logpolar_candidate(flipped_source, flipped_seed, True)
         else:
             _xp_img = cp.get_array_module(source_image)
@@ -1702,6 +1773,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 execution=execution,
                 force_search=force_scale_search,
             )
+            _show_flipped_refine(progress_span)
             flipped_final = _finalize_bruteforce_candidate(
                 flipped_source, flipped_seed, flipped_scale, True)
         # Upright vs flipped by masked significance (same scorer family, same overlap rules),
@@ -2146,9 +2218,14 @@ def _find_best_angle_exhaustive(pair: _RegistrationPair,
     """A full angle sweep at every scale candidate, at full resolution. The default."""
     best_match: nornir_imageregistration.AlignmentRecord | None = None
     best_scale = 1.0
-    for candidate in candidates:
+    for index, candidate in enumerate(candidates):
         check_cancelled(execution.cancel_event)
-        match = _find_best_angle_at_scale(pair, angle_range, candidate, execution)
+        saved = _push_progress(execution, index / len(candidates), (index + 1) / len(candidates),
+                               f"scale {index + 1}/{len(candidates)}: ")
+        try:
+            match = _find_best_angle_at_scale(pair, angle_range, candidate, execution)
+        finally:
+            _restore_progress(execution, saved)
         if best_match is None or match.weight > best_match.weight:
             best_match = match
             best_scale = candidate
