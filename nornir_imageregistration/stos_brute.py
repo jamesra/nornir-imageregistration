@@ -430,7 +430,7 @@ class _ProgressSpan:
 
     def __call__(self, current: int, total: int, label: str, preview: object = None) -> None:
         fraction = min(max(float(current) / float(total), 0.0), 1.0) if total > 0 else 0.0
-        step = int(round((self._lo + (self._hi - self._lo) * fraction) * _PROGRESS_STEPS))
+        step = round((self._lo + (self._hi - self._lo) * fraction) * _PROGRESS_STEPS)
         self._shown = max(self._shown, step)
         report_progress(self._callback, self._shown, _PROGRESS_STEPS, self._prefix + label, preview)
 
