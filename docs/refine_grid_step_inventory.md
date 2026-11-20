@@ -37,7 +37,7 @@ flowchart TD
 | 1 | Sticky low-content skip | `source_content_cache.py`, `cell_validity.py` | is there tissue to measure | keep |
 | 2 | Ring rigid local prior | `ring_pose_limits.py` | measurement under current field | keep |
 | 3 | Dual rigid/exact ROI candidate | `local_distortion_correction.py` | which measured candidate is more unique | keep; serial and batched choose peak ratio then weight |
-| 4 | Phase correlation and finite `peak_ratio` | `peak_ratio_gates.py` | is this peak unique | keep; missing fails closed |
+| 4 | Masked NCC significance peak and finite `peak_ratio` | `masked_correlation.py`, `peak_ratio_gates.py` | is this peak unique | keep; missing fails closed. Since stage 4 (2026-11-20) STOS cells are measured by band-pass + masked NCC (tissue mask, out-of-bounds and blended pixels left out; no noise fill), serial and batched; `peak_ratio` is a ratio of significance `atanh(r)*sqrt(n)`. Gates 1.20/1.50 kept: on RC2 Grid32 590-591 and 605-606 the lock fraction held (0.98-0.99, 0.995-0.997) and pass-1 unique fraction rose on 792-791 (0.45 -> 0.73) and 654-653 (0.59 -> 0.94) |
 | 5 | Displacement regularization | `displacement_regularize.py` | measurement cleanup only | keep |
 | 6 | One cell-size growth for zero-trust seeding | `adaptive_cell_size.py` | is there anything trusted at all | keep |
 | 7 | ZNCC prominence | `cell_roles.py` | does this peak beat its local null | keep |

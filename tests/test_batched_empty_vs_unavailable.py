@@ -132,10 +132,10 @@ class TestAllPeaksUnusable(unittest.TestCase):
     """Measured, but every peak unusable, is also a decision."""
 
     def _measure_returning_zero_weights(self):
-        real = ldc.measure_translation_cells_batched
+        real = ldc._measure_masked_cells_batched
 
-        def zero_weights(fixed, moving, cell_shape, **kwargs):
-            peaks, weights, ratios = real(fixed, moving, cell_shape, **kwargs)
+        def zero_weights(*args, **kwargs):
+            peaks, weights, ratios = real(*args, **kwargs)
             xp = nornir_imageregistration.cp.get_array_module(weights)
             return peaks, xp.zeros_like(weights), xp.zeros_like(ratios)
 
@@ -143,28 +143,28 @@ class TestAllPeaksUnusable(unittest.TestCase):
 
     def test_zero_weights_on_textured_cells_returns_empty_list(self):
         real, patched = self._measure_returning_zero_weights()
-        ldc.measure_translation_cells_batched = patched
+        ldc._measure_masked_cells_batched = patched
         try:
             records = _run_batched(_textured())
         finally:
-            ldc.measure_translation_cells_batched = real
+            ldc._measure_masked_cells_batched = real
 
         self.assertIsNotNone(records)
         self.assertEqual(records, [])
 
     def test_nan_peaks_on_textured_cells_returns_empty_list(self):
-        real = ldc.measure_translation_cells_batched
+        real = ldc._measure_masked_cells_batched
 
-        def nan_peaks(fixed, moving, cell_shape, **kwargs):
-            peaks, weights, ratios = real(fixed, moving, cell_shape, **kwargs)
+        def nan_peaks(*args, **kwargs):
+            peaks, weights, ratios = real(*args, **kwargs)
             xp = nornir_imageregistration.cp.get_array_module(peaks)
             return xp.full_like(peaks, xp.nan), weights, ratios
 
-        ldc.measure_translation_cells_batched = nan_peaks
+        ldc._measure_masked_cells_batched = nan_peaks
         try:
             records = _run_batched(_textured())
         finally:
-            ldc.measure_translation_cells_batched = real
+            ldc._measure_masked_cells_batched = real
 
         self.assertIsNotNone(records)
         self.assertEqual(records, [])
@@ -191,18 +191,18 @@ class TestCallerHonoursEmptyResult(_SerialSpyCase):
         Pre-fix this returned four serial records with weight ~52 in place of the
         empty batched answer.
         """
-        real = ldc.measure_translation_cells_batched
+        real = ldc._measure_masked_cells_batched
 
-        def zero_weights(fixed, moving, cell_shape, **kwargs):
-            peaks, weights, ratios = real(fixed, moving, cell_shape, **kwargs)
+        def zero_weights(*args, **kwargs):
+            peaks, weights, ratios = real(*args, **kwargs)
             xp = nornir_imageregistration.cp.get_array_module(weights)
             return peaks, xp.zeros_like(weights), xp.zeros_like(ratios)
 
-        ldc.measure_translation_cells_batched = zero_weights
+        ldc._measure_masked_cells_batched = zero_weights
         try:
             records, serial_calls = self._refine_counting_serial_calls(_textured())
         finally:
-            ldc.measure_translation_cells_batched = real
+            ldc._measure_masked_cells_batched = real
 
         self.assertEqual(serial_calls, 0)
         self.assertEqual(len(records), 0)
@@ -246,42 +246,43 @@ class TestFewCellsAreBatched(_SerialSpyCase):
 class TestUnavailableStillFallsBack(_SerialSpyCase):
     """``None`` must keep meaning "could not run", or batching becomes mandatory."""
 
-    def test_serial_fallback_stays_translation_only(self):
-        """The fallback must not add StosBrute's angle estimate and scale search."""
-        seen: list[dict] = []
-        real_rigid = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration
+    def _spy_masked(self) -> tuple[list[list[float]], object]:
+        """Record the angles each serial masked-NCC registration searches."""
+        seen: list[list[float]] = []
+        real = ldc.AlignMaskedROIs
 
         def spy(*args, **kwargs):
-            seen.append(kwargs)
-            return real_rigid(*args, **kwargs)
+            angles = kwargs['angles'] if 'angles' in kwargs else args[4]
+            seen.append([float(a) for a in angles])
+            return real(*args, **kwargs)
 
+        ldc.AlignMaskedROIs = spy
+        return seen, real
+
+    def test_serial_fallback_stays_translation_only(self):
+        """The fallback registers by masked NCC at angle 0 only: no angle estimate, no scale search.
+
+        Masked NCC (stage 4) has no scale search and no log-polar seed; StosBrute is not called.
+        """
+        seen, real_masked = self._spy_masked()
         real_batched = ldc._attempt_align_points_translation_batched
         ldc._attempt_align_points_translation_batched = lambda **kwargs: None
-        nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = spy
         try:
             self._refine_counting_serial_calls(_textured())
         finally:
             ldc._attempt_align_points_translation_batched = real_batched
-            nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = real_rigid
+            ldc.AlignMaskedROIs = real_masked
 
         self.assertTrue(seen)
-        for kwargs in seen:
-            self.assertIs(kwargs['estimate_angle'], False)
-            self.assertIs(kwargs['search_scale'], False)
+        for angles in seen:
+            self.assertEqual(angles, [0.0])
 
     def test_angle_search_refine_does_not_enable_stosbrute_extras(self):
-        """Non-zero angles alone must not auto-enable log-polar estimate or scale search."""
-        seen: list[dict] = []
-        real_rigid = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration
-
-        def spy(*args, **kwargs):
-            seen.append(kwargs)
-            return real_rigid(*args, **kwargs)
-
+        """Non-zero angles are searched as given; nothing is appended."""
         points = _grid_points(2)
         settings = _settings(_textured())
         settings.angles_to_search = np.asarray([-3.0, 0.0, 3.0], dtype=np.float64)
-        nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = spy
+        seen, real_masked = self._spy_masked()
         try:
             ldc._RefinePointsForTwoImages(
                 _identity(),
@@ -290,27 +291,19 @@ class TestUnavailableStillFallsBack(_SerialSpyCase):
                 points,
                 settings)
         finally:
-            nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = real_rigid
+            ldc.AlignMaskedROIs = real_masked
 
         self.assertTrue(seen)
-        for kwargs in seen:
-            self.assertIs(kwargs['estimate_angle'], False)
-            self.assertIs(kwargs['search_scale'], False)
+        for angles in seen:
+            self.assertEqual(angles, [-3.0, 0.0, 3.0])
 
-    def test_estimate_angle_setting_forwards_without_scale_search(self):
-        """Opt-in estimate_angle appends a log-polar seed; scale search stays off."""
-        seen: list[dict] = []
-        real_rigid = nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration
-
-        def spy(*args, **kwargs):
-            seen.append(kwargs)
-            return real_rigid(*args, **kwargs)
-
+    def test_estimate_angle_setting_does_not_add_a_log_polar_seed_to_masked_refine(self):
+        """estimate_angle is ignored on the masked path (as in Pyre Space since stage 2): only the given angles."""
         points = _grid_points(2)
         settings = _settings(_textured())
         settings.angles_to_search = np.asarray([-3.0, 0.0, 3.0], dtype=np.float64)
         settings.estimate_angle = True
-        nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = spy
+        seen, real_masked = self._spy_masked()
         try:
             ldc._RefinePointsForTwoImages(
                 _identity(),
@@ -319,12 +312,11 @@ class TestUnavailableStillFallsBack(_SerialSpyCase):
                 points,
                 settings)
         finally:
-            nornir_imageregistration.stos_brute.SliceToSliceRigidRegistration = real_rigid
+            ldc.AlignMaskedROIs = real_masked
 
         self.assertTrue(seen)
-        for kwargs in seen:
-            self.assertIs(kwargs['estimate_angle'], True)
-            self.assertIs(kwargs['search_scale'], False)
+        for angles in seen:
+            self.assertEqual(angles, [-3.0, 0.0, 3.0])
 
     def test_caller_measures_serially_when_batched_returns_none(self):
         real = ldc._attempt_align_points_translation_batched

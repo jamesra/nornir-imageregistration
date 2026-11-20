@@ -19,6 +19,9 @@ moving image's centre onto the fixed image's centre. See ``docs/publication_note
 
 from __future__ import annotations
 
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
 import numpy as np
@@ -55,6 +58,45 @@ def default_bandpass_sigmas(shape: tuple[int, ...]) -> tuple[float, float]:
     return 1.0, max(4.0, short_side / 16.0)
 
 
+def _working_dtype(*arrays) -> np.dtype:
+    """float32 when every input is float32 or narrower (refine cell stacks), else float64.
+
+    Follows the caller's precision like ``batched_find_offset``: float32 halves the FFT and filter
+    cost, and the band-passed values have near-zero mean, so the one-pass variance terms keep their
+    precision. Integer and float64 inputs stay in float64.
+    """
+    if all(np.issubdtype(a.dtype, np.floating) and np.dtype(a.dtype).itemsize <= 4 for a in arrays):
+        return np.dtype(np.float32)
+    return np.dtype(np.float64)
+
+
+# Gaussian filtering of a NumPy (N, h, w) stack is split across this many threads. SciPy's ndimage
+# filters release the GIL; on 256 cells of 128 px, 8 threads were 6.5x faster than one (workstation,
+# 32 cores). The FFTs already use every core (``workers=-1``).
+_FILTER_THREADS: int = max(1, min(8, os.cpu_count() or 1))
+_filter_pool: ThreadPoolExecutor | None = None
+_filter_pool_lock = threading.Lock()
+
+
+def _gaussian_filter_stack(nd, array, sigma, xp):
+    """``nd.gaussian_filter`` with constant-0 edges; NumPy stacks are filtered in chunks on a thread pool."""
+    if xp is not np or array.ndim != 3 or array.shape[0] < 2 or _FILTER_THREADS < 2:
+        return nd.gaussian_filter(array, sigma=sigma, mode='constant', cval=0.0)
+    global _filter_pool
+    with _filter_pool_lock:
+        if _filter_pool is None:
+            _filter_pool = ThreadPoolExecutor(max_workers=_FILTER_THREADS, thread_name_prefix='masked-bandpass')
+    out = np.empty_like(array)
+    bounds = np.linspace(0, array.shape[0], min(_FILTER_THREADS, array.shape[0]) + 1).astype(int)
+
+    def run(i: int) -> None:
+        lo, hi = bounds[i], bounds[i + 1]
+        nd.gaussian_filter(array[lo:hi], sigma=sigma, mode='constant', cval=0.0, output=out[lo:hi])
+
+    list(_filter_pool.map(run, range(len(bounds) - 1)))
+    return out
+
+
 def _ndimage(array):
     """SciPy or CuPyX ndimage, following *array*."""
     return cupyx.scipy.get_array_module(array).ndimage
@@ -64,9 +106,9 @@ def _valid_lowpass(image_times_mask, mask_float, sigma: float):
     """Normalized-convolution low-pass: ``G*(I*M) / G*M``, plus the support ``G*M``."""
     nd = _ndimage(image_times_mask)
     sig = (0.0, sigma, sigma) if image_times_mask.ndim == 3 else (sigma, sigma)
-    blurred = nd.gaussian_filter(image_times_mask, sigma=sig, mode='constant', cval=0.0)
-    support = nd.gaussian_filter(mask_float, sigma=sig, mode='constant', cval=0.0)
     xp = cp.get_array_module(image_times_mask)
+    blurred = _gaussian_filter_stack(nd, image_times_mask, sig, xp)
+    support = _gaussian_filter_stack(nd, mask_float, sig, xp)
     lowpass = xp.where(support > 0, blurred / xp.maximum(support, 1e-12), 0.0)
     return lowpass, support
 
@@ -83,10 +125,11 @@ def masked_bandpass(image: NDArray, mask: NDArray[np.bool_] | None,
         estimate has less than ``BANDPASS_MIN_SUPPORT`` support.
     """
     xp = cp.get_array_module(image)
-    image = xp.asarray(image, dtype=xp.float64)
+    dtype = _working_dtype(image)
+    image = xp.asarray(image, dtype=dtype)
     finite = xp.isfinite(image)
     valid = finite if mask is None else (xp.asarray(mask, dtype=bool) & finite)
-    mask_float = valid.astype(xp.float64)
+    mask_float = valid.astype(dtype)
     image_times_mask = xp.where(valid, image, 0.0)
 
     low, _ = _valid_lowpass(image_times_mask, mask_float, sigma_lo)
@@ -123,11 +166,12 @@ def masked_ncc_surface(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
         origin's position in fixed coordinates. Invalid shifts are NaN in *ncc*.
     """
     xp = cp.get_array_module(fixed)
-    fixed = xp.asarray(fixed, dtype=xp.float64)
-    moving = xp.asarray(moving, dtype=xp.float64)
+    dtype = _working_dtype(fixed, moving)
+    fixed = xp.asarray(fixed, dtype=dtype)
+    moving = xp.asarray(moving, dtype=dtype)
     size = _correlation_size(fixed.shape, moving.shape)
-    fixed_side = _SideSpectra.create(fixed, fixed_mask, size, xp.float64)
-    moving_side = _SideSpectra.create(moving, moving_mask, size, xp.float64)
+    fixed_side = _SideSpectra.create(fixed, fixed_mask, size, dtype)
+    moving_side = _SideSpectra.create(moving, moving_mask, size, dtype)
     return _ncc_from_spectra(fixed_side, moving_side, size, min_overlap_fraction, xp)
 
 
@@ -367,6 +411,50 @@ def masked_find_offset_batched(fixed: NDArray, fixed_mask: NDArray[np.bool_] | N
         dtype=peaks.dtype)
     peaks = xp.where(found[:, None], peaks + size_shift[None, :], peaks)
     return BatchedMaskedOffsets(peaks, weights, peak_ratios, peak_ncc)
+
+
+_chunk_pool: ThreadPoolExecutor | None = None
+
+
+def masked_find_offset_chunked(fixed: NDArray, fixed_mask: NDArray[np.bool_],
+                               moving: NDArray, moving_mask: NDArray[np.bool_],
+                               *,
+                               max_chunk: int,
+                               peak_ratio_exclusion_radius: int | None = None,
+                               ) -> BatchedMaskedOffsets:
+    """:func:`masked_find_offset_batched` over a large stack in chunks of at most *max_chunk* pairs.
+
+    *max_chunk* bounds the FFT workspace (the caller's memory budget). On NumPy the chunks are also
+    split so every one of ``_FILTER_THREADS`` threads gets work: the element-wise NCC terms run on
+    one core otherwise, and 256 cells of 128 px took 2.3 s in one call against 0.85 s in 8 threads
+    (workstation, 32 cores). CuPy runs the chunks in order on the device.
+    """
+    global _chunk_pool
+    xp = cp.get_array_module(fixed)
+    n = int(fixed.shape[0])
+    chunk = max(1, int(max_chunk))
+    if xp is np and _FILTER_THREADS > 1:
+        chunk = max(1, min(chunk, -(-n // _FILTER_THREADS)))
+    bounds = list(range(0, n, chunk)) + [n]
+
+    def run(i: int) -> BatchedMaskedOffsets:
+        lo, hi = bounds[i], bounds[i + 1]
+        return masked_find_offset_batched(fixed[lo:hi], fixed_mask[lo:hi], moving[lo:hi], moving_mask[lo:hi],
+                                          peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
+
+    count = len(bounds) - 1
+    if count == 1:
+        return run(0)
+    if xp is np and _FILTER_THREADS > 1:
+        with _filter_pool_lock:
+            if _chunk_pool is None:
+                # Separate from the filter pool: a chunk waits on its own filter tasks.
+                _chunk_pool = ThreadPoolExecutor(max_workers=_FILTER_THREADS, thread_name_prefix='masked-ncc')
+        parts = list(_chunk_pool.map(run, range(count)))
+    else:
+        parts = [run(i) for i in range(count)]
+    return BatchedMaskedOffsets(*(xp.concatenate([getattr(p, f) for p in parts], axis=0)
+                                  for f in BatchedMaskedOffsets._fields))
 
 class MaskedNccSweep:
     """Masked NCC of one band-passed fixed image against many moving images of bounded size.

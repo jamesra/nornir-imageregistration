@@ -314,6 +314,15 @@ class TestMaskedFindOffsetBatched(unittest.TestCase):
         for i in (0, 2, 3):
             np.testing.assert_allclose(result.peaks[i], whole.peaks[i], atol=1e-9)
 
+    def test_chunked_matches_one_batch(self) -> None:
+        fixed, fixed_mask, moving, moving_mask = self._stack()
+        whole = mc.masked_find_offset_batched(fixed, fixed_mask, moving, moving_mask)
+        for max_chunk in (1, 3, 100):
+            with self.subTest(max_chunk=max_chunk):
+                chunked = mc.masked_find_offset_chunked(fixed, fixed_mask, moving, moving_mask, max_chunk=max_chunk)
+                for field in mc.BatchedMaskedOffsets._fields:
+                    np.testing.assert_allclose(getattr(chunked, field), getattr(whole, field), atol=1e-9)
+
     @unittest.skipUnless(_HAVE_CUPY, "needs CUDA")
     def test_cupy_matches_numpy(self) -> None:
         fixed, fixed_mask, moving, moving_mask = self._stack()

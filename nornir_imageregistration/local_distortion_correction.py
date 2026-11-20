@@ -1593,6 +1593,108 @@ def BuildExactMovingROIsBatched(
     return moving_stack, nan_mask_stack
 
 
+# A warped mask sample below this is blended with an invalid pixel; the pixel is left out.
+_MASK_VALID_MIN: float = 0.999
+
+# Masked NCC needs about three times the FFT workspace of phase correlation per cell.
+_MASKED_NCC_CHUNK_DIVISOR: int = 3
+
+_VALID_FLOAT_CACHE: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _settings_valid_floats(settings: nornir_imageregistration.settings.GridRefinement,
+                           xp) -> tuple[NDArray, NDArray]:
+    """Target and source validity (tissue mask, or all True) as float32 images on *xp*, cached per settings.
+
+    Sampled through the same crops and warps as the images, a cell pixel is valid where the sample is
+    at least ``_MASK_VALID_MIN``: inside the image, on tissue, and not blended with a masked pixel.
+    Cached so a refine pass does not move the whole mask to the device for every batch.
+    """
+    try:
+        per_module = _VALID_FLOAT_CACHE.setdefault(settings, {})
+    except TypeError:  # settings that cannot be weakly referenced are not cached
+        per_module = {}
+    cached = per_module.get(xp)
+    if cached is not None:
+        return cached
+
+    def _as_float(mask: NDArray[np.bool_] | None, image: NDArray) -> NDArray:
+        if mask is None:
+            return xp.ones(tuple(int(v) for v in image.shape), dtype=xp.float32)
+        return _ensure_on_array_module(mask, xp).astype(xp.float32)
+
+    target_image, source_image = _stos_settings_images(settings)
+    result = (_as_float(getattr(settings, 'target_mask', None), target_image),
+              _as_float(getattr(settings, 'source_mask', None), source_image))
+    per_module[xp] = result
+    return result
+
+
+def BuildAlignmentValidityBatched(
+        rigid_transforms: Sequence[nornir_imageregistration.ITransform],
+        target_valid_float: NDArray,
+        source_valid_float: NDArray,
+        target_points: NDArray,
+        alignment_area: NDArray | tuple[float, float],
+) -> tuple[NDArray[np.bool_], NDArray[np.bool_]] | None:
+    """Validity stacks for the ROIs of :func:`BuildAlignmentROIsBatched`: ``(fixed_valid, moving_valid)``.
+
+    Same crops and inverse maps; out-of-bounds samples are 0 and therefore invalid. Returns None
+    exactly when ``BuildAlignmentROIsBatched`` does (transforms not rigid-compatible).
+    """
+    area = np.asarray(alignment_area, dtype=np.int64).ravel()[:2]
+    cell_h, cell_w = int(area[0]), int(area[1])
+    if len(rigid_transforms) == 0 or cell_h <= 0 or cell_w <= 0:
+        return None
+    xp = cp.get_array_module(target_valid_float)
+    sp = cupyx.scipy if xp is not np else scipy
+    target_points = _ensure_on_array_module(target_points, xp)
+    botlefts = _alignment_roi_botlefts(target_points, alignment_area)
+    matrix_info = _rigid_inverse_matrices(rigid_transforms, xp)
+    if matrix_info is None:
+        return None
+    inverse_matrices, pure_translation_mask = matrix_info
+    fixed_valid = _crop_target_rois_batched(target_valid_float, botlefts, cell_h, cell_w, None, xp)
+    moving_valid = _sample_source_rois_batched(
+        _ensure_on_array_module(source_valid_float, xp), inverse_matrices, pure_translation_mask, botlefts,
+        cell_h, cell_w, xp, sp, oob_cval=0.0)
+    return fixed_valid >= _MASK_VALID_MIN, moving_valid >= _MASK_VALID_MIN
+
+
+def BuildExactMovingValidityBatched(
+        transform: nornir_imageregistration.ITransform,
+        source_valid_float: NDArray,
+        target_points: NDArray,
+        alignment_area: NDArray | tuple[float, float],
+        xp,
+) -> NDArray[np.bool_]:
+    """Validity stack for the ROIs of :func:`BuildExactMovingROIsBatched`."""
+    area = np.asarray(alignment_area, dtype=np.int64).ravel()[:2]
+    sp = cupyx.scipy if xp is not np else scipy
+    target_points = _ensure_on_array_module(target_points, xp)
+    botlefts = _alignment_roi_botlefts(target_points, alignment_area)
+    moving_valid = _sample_source_rois_batched_exact(
+        _ensure_on_array_module(source_valid_float, xp), transform, botlefts, int(area[0]), int(area[1]),
+        xp, sp, oob_cval=0.0)
+    return moving_valid >= _MASK_VALID_MIN
+
+
+def _measure_masked_cells_batched(fixed: NDArray, fixed_valid: NDArray[np.bool_],
+                                  moving: NDArray, moving_valid: NDArray[np.bool_],
+                                  peak_ratio_exclusion_radius: int,
+                                  ) -> tuple[NDArray, NDArray, NDArray]:
+    """Masked-NCC ``(peaks, weights, peak_ratios)`` for a cell stack, chunked to bound FFT workspace.
+
+    Masked NCC holds six spectra per pair at about twice the cell size in each axis, so a chunk
+    takes a third of the phase-correlation cell budget (``batched_fft_cell_chunk_size``).
+    """
+    chunk = max(1, batched_fft_cell_chunk_size(fixed.shape[1:]) // _MASKED_NCC_CHUNK_DIVISOR)
+    result = nornir_imageregistration.masked_correlation.masked_find_offset_chunked(
+        fixed, fixed_valid, moving, moving_valid, max_chunk=chunk,
+        peak_ratio_exclusion_radius=peak_ratio_exclusion_radius)
+    return result.peaks, result.weights, result.peak_ratios
+
+
 def _cells_alignable_batched(fixed_stack: NDArray,
                              moving_stack: NDArray,
                              nan_mask_stack: NDArray | None,
@@ -1759,10 +1861,17 @@ def _attempt_align_points_translation_batched(
             target_points=target_points,
             alignment_area=settings.cell_size)
 
+        target_valid_float, source_valid_float = _settings_valid_floats(settings, cp.get_array_module(target_image))
         kept_indices: list[int]
+        fixed_valid_stack: NDArray | None = None
+        moving_valid_stack: NDArray | None = None
         if batched is not None:
             fixed_stack, moving_stack, nan_mask_stack = batched
             kept_indices = list(range(len(keys)))
+            validity = BuildAlignmentValidityBatched(
+                rigid_transforms, target_valid_float, source_valid_float, target_points, settings.cell_size)
+            if validity is not None:
+                fixed_valid_stack, moving_valid_stack = validity
         else:
             # Non-rigid / unsupported transforms: legacy per-cell extract with deferred OOB.
             fixed_cells: list[NDArray] = []
@@ -1818,7 +1927,6 @@ def _attempt_align_points_translation_batched(
             fixed_stack = xp.asarray(fixed_stack, dtype=working)
         if moving_stack.dtype != working:
             moving_stack = xp.asarray(moving_stack, dtype=working)
-        cell_shape = np.asarray(fixed_stack.shape[1:], dtype=np.int64)
 
         # Batched accept/reject: alignability + entirely-OOB, one host sync. A cell
         # whose rigid ROI is unusable is measured from its exact ROI below; it is
@@ -1837,16 +1945,21 @@ def _attempt_align_points_translation_batched(
         # AttemptAlignPoint cost about 1-2 s per cell against milliseconds here
         # (RC3 1503-1502: 4.3 s of a 9 s pair).
 
+        if fixed_valid_stack is None or moving_valid_stack is None:
+            # Per-cell fallback ROIs: no tissue masks, only the out-of-bounds pixels are left out.
+            fixed_valid_stack = xp.ones(fixed_stack.shape, dtype=bool)
+            moving_valid_stack = (xp.ones(moving_stack.shape, dtype=bool) if nan_mask_stack is None
+                                  else ~nan_mask_stack)
+        elif nan_mask_stack is not None:
+            moving_valid_stack = moving_valid_stack & ~nan_mask_stack
+
     n_cells = len(kept_indices)
 
-    def _measure(fixed: NDArray, moving: NDArray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _measure(fixed: NDArray, fixed_valid: NDArray, moving: NDArray, moving_valid: NDArray,
+                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         with _PHASE_TIMER.section('fft'):
-            peaks_dev, weights_dev, peak_ratios_dev = measure_translation_cells_batched(
-                fixed,
-                moving,
-                cell_shape,
-                min_overlap=float(settings.min_alignment_overlap),
-                max_overlap=1.0,
+            peaks_dev, weights_dev, peak_ratios_dev = _measure_masked_cells_batched(
+                fixed, fixed_valid, moving, moving_valid,
                 peak_ratio_exclusion_radius=int(settings.peak_ratio_exclusion_radius))
         with _PHASE_TIMER.section('host_sync'):
             return (
@@ -1854,8 +1967,8 @@ def _attempt_align_points_translation_batched(
                 np.asarray(nornir_imageregistration.EnsureNumpyArray(weights_dev), dtype=np.float64).reshape(-1),
                 np.asarray(nornir_imageregistration.EnsureNumpyArray(peak_ratios_dev), dtype=np.float64).reshape(-1))
 
-    def _measure_rows(fixed: NDArray, moving: NDArray, ok: np.ndarray,
-                      ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _measure_rows(fixed: NDArray, fixed_valid: NDArray, moving: NDArray, moving_valid: NDArray,
+                      ok: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Measure only the alignable rows; the rest read as weight 0 with no peak."""
         count = int(ok.shape[0])
         peaks_out = np.full((count, 2), np.nan, dtype=np.float64)
@@ -1864,14 +1977,15 @@ def _attempt_align_points_translation_batched(
         if not np.any(ok):
             return peaks_out, weights_out, ratios_out
         if np.all(ok):
-            measured = _measure(fixed, moving)
+            measured = _measure(fixed, fixed_valid, moving, moving_valid)
         else:
             sel = xp.asarray(np.flatnonzero(ok))
-            measured = _measure(fixed[sel], moving[sel])
+            measured = _measure(fixed[sel], fixed_valid[sel], moving[sel], moving_valid[sel])
         peaks_out[ok], weights_out[ok], ratios_out[ok] = measured
         return peaks_out, weights_out, ratios_out
 
-    peaks, weights, peak_ratios = _measure_rows(fixed_stack, moving_stack, rigid_ok)
+    peaks, weights, peak_ratios = _measure_rows(fixed_stack, fixed_valid_stack, moving_stack, moving_valid_stack,
+                                                rigid_ok)
     used_exact = np.zeros(n_cells, dtype=bool)
     exact_ok = np.zeros(n_cells, dtype=bool)
     valid_mask: NDArray | None = None if nan_mask_stack is None else ~nan_mask_stack
@@ -1893,10 +2007,15 @@ def _attempt_align_points_translation_batched(
                     xp=xp)
                 if exact_moving.dtype != working:
                     exact_moving = xp.asarray(exact_moving, dtype=working)
+                exact_valid = BuildExactMovingValidityBatched(
+                    exact_transform, source_valid_float, exact_targets, settings.cell_size, xp)
+                if exact_nan is not None:
+                    exact_valid = exact_valid & ~exact_nan
                 soft_fixed = fixed_stack[soft_dev]
+                soft_fixed_valid = fixed_valid_stack[soft_dev]
                 exact_ok_soft = _cells_alignable_batched(soft_fixed, exact_moving, exact_nan, min_std)
-            exact_result = _measure_rows(soft_fixed, exact_moving, exact_ok_soft)
-            del soft_fixed
+            exact_result = _measure_rows(soft_fixed, soft_fixed_valid, exact_moving, exact_valid, exact_ok_soft)
+            del soft_fixed, soft_fixed_valid, exact_valid
             rigid_soft = (peaks[soft_rows], weights[soft_rows], peak_ratios[soft_rows])
             s_peaks, s_weights, s_ratios, s_used_exact = _choose_translation_candidates(rigid_soft, exact_result)
             peaks[soft_rows] = s_peaks
@@ -5530,6 +5649,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                 alignmentArea=settings.cell_size,
                 anglesToSearch=settings.angles_to_search,
                 min_alignment_overlap=settings.min_alignment_overlap,
+                target_mask=settings.target_mask,
+                source_mask=settings.source_mask,
                 **search_kwargs)
             if arecord is None:
                 continue
@@ -5581,8 +5702,8 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
                                   rigid_transform=rigid_transforms[i],
                                   targetImage=settings.target_image_meta,  # Send the shared file to the task
                                   sourceImage=settings.source_image_meta,  # Send the shared file to the task
-                                  # settings.target_mask,
-                                  # settings.source_mask,
+                                  target_mask=getattr(settings, 'target_mask_meta', None),
+                                  source_mask=getattr(settings, 'source_mask_meta', None),
                                   target_image_stats=settings.target_image_stats,
                                   source_image_stats=settings.source_image_stats,
                                   target_controlpoint=targetPoint,
@@ -6272,7 +6393,6 @@ def BuildAlignmentROIs(transform: nornir_imageregistration.ITransform,
 
 # A warped or rotated mask pixel counts as valid only when its interpolated value is at least this:
 # a pixel that blends in any masked or out-of-bounds sample is left out.
-_MASK_VALID_MIN: float = 0.999
 
 
 def BuildMaskedAlignmentROIs(transform: nornir_imageregistration.ITransform,
@@ -6289,6 +6409,13 @@ def BuildMaskedAlignmentROIs(transform: nornir_imageregistration.ITransform,
     either are False in the returned mask. Accepts NumPy or CuPy; ops follow the target image.
     :return: ``(target_roi, target_valid, source_roi, source_valid)``.
     """
+    # Pooled refine passes shared-memory handles for the images and masks.
+    targetImage = nornir_imageregistration.ImageParamToImageArray(targetImage)
+    sourceImage = nornir_imageregistration.ImageParamToImageArray(sourceImage)
+    if target_mask is not None:
+        target_mask = nornir_imageregistration.ImageParamToImageArray(target_mask)
+    if source_mask is not None:
+        source_mask = nornir_imageregistration.ImageParamToImageArray(source_mask)
     xp = cp.get_array_module(targetImage)
     sourceImage = _ensure_on_array_module(sourceImage, xp)
 

@@ -27,6 +27,18 @@ def _sheared_mesh(size: int) -> MeshWithRBFFallback:
     return MeshWithRBFFallback(np.hstack((target, source)))
 
 
+
+def _all_valid_rigid(rigid_transforms, target_valid_float, source_valid_float, target_points, alignment_area):
+    """Validity for faked ROIs: every pixel valid (the fakes have no masks or out-of-bounds pixels)."""
+    n = len(rigid_transforms)
+    h, w = (int(v) for v in np.asarray(alignment_area).ravel()[:2])
+    return np.ones((n, h, w), bool), np.ones((n, h, w), bool)
+
+
+def _all_valid_exact(transform, source_valid_float, target_points, alignment_area, xp):
+    h, w = (int(v) for v in np.asarray(alignment_area).ravel()[:2])
+    return np.ones((len(target_points), h, w), bool)
+
 class TestChooseTranslationCandidates(unittest.TestCase):
 
     def _pick(self, rigid, exact):
@@ -184,7 +196,7 @@ class TestSelectiveExactCandidate(unittest.TestCase):
         sink = ldc.MeasuredRoiSink()
         with patch.object(ldc, '_stos_settings_images', return_value=(fixed[0], fixed[0])), \
              patch.object(ldc, 'BuildAlignmentROIsBatched', side_effect=fake_rigid_rois), \
-             patch.object(ldc, 'BuildExactMovingROIsBatched', side_effect=fake_exact_rois):
+             patch.object(ldc, 'BuildExactMovingROIsBatched', side_effect=fake_exact_rois),              patch.object(ldc, 'BuildAlignmentValidityBatched', side_effect=_all_valid_rigid),              patch.object(ldc, 'BuildExactMovingValidityBatched', side_effect=_all_valid_exact):
             records = ldc._attempt_align_points_translation_batched(
                 keys=keys,
                 source_points=target_points.copy(),
@@ -236,7 +248,7 @@ class TestSelectiveExactCandidate(unittest.TestCase):
 
         with patch.object(ldc, '_stos_settings_images', return_value=(fixed[0], fixed[0])), \
              patch.object(ldc, 'BuildAlignmentROIsBatched', return_value=(fixed, moving, None)), \
-             patch.object(ldc, 'BuildExactMovingROIsBatched', side_effect=never):
+             patch.object(ldc, 'BuildExactMovingROIsBatched', side_effect=never),              patch.object(ldc, 'BuildAlignmentValidityBatched', side_effect=_all_valid_rigid):
             records = ldc._attempt_align_points_translation_batched(
                 keys=[(i, 0) for i in range(n)],
                 source_points=target_points.copy(),

@@ -396,12 +396,6 @@ class TestSearchExecutionRouting(_EnvIsolated):
         self.assertIs(self.callback, kw['progress_callback'])
         self.assertIs(False, kw['use_gpu'])
 
-    def _assert_unscaled_pair(self, kw):
-        """The sweep scored the caller's source and target, unscaled, at the caller's overlap."""
-        self.assertEqual(self.source.shape, tuple(kw['source_image'].shape))
-        self.assertEqual(self.target.shape, tuple(kw['target_image'].shape))
-        self.assertEqual(self._MIN_OVERLAP, kw['min_overlap'])
-
     def test_at_scale_passes_every_field_at_and_away_from_scale_one(self):
         pair = _pair(32)
         for scale in (1.0, 0.5):
@@ -451,22 +445,23 @@ class TestSearchExecutionRouting(_EnvIsolated):
                         execution=self.execution, force_search=True)
                 self.assertIs(self.execution, inner.call_args.args[3])
 
-    @staticmethod
-    def _recording_find_best_angle(calls: list[dict]):
-        """A ``_find_best_angle`` stand-in that records its keyword arguments in *calls*."""
-        def fake(**kw):
-            calls.append(kw)
-            angles = [float(a) for a in kw['angle_range']]
-            return nornir_imageregistration.AlignmentRecord(
-                peak=(0.0, 0.0), weight=1.0 + 0.01 * len(calls), angle=angles[len(angles) // 2])
-        return fake
-
     def test_the_public_entry_point_routes_its_flags_to_every_brute_sweep(self):
+        """Since stage 3b the brute sweeps score by masked NCC (``_find_best_angle_masked``).
+
+        Every sweep, upright and flipped, gets the caller's cancel event and progress callback;
+        without scale search the upright sweep runs on the unscaled source.
+        """
         for search_scale in (True, False):
             with self.subTest(search_scale=search_scale):
-                calls: list[dict] = []
-                fake = self._recording_find_best_angle(calls)
-                with mock.patch.object(stos_brute, '_find_best_angle', side_effect=fake):
+                calls: list[tuple] = []
+
+                def fake(scorer, angle_range, source_scale, execution, calls=calls):
+                    calls.append((scorer, [float(a) for a in angle_range], source_scale, execution))
+                    angles = calls[-1][1]
+                    return nornir_imageregistration.AlignmentRecord(
+                        peak=(0.0, 0.0), weight=1.0 + 0.01 * len(calls), angle=angles[len(angles) // 2])
+
+                with mock.patch.object(stos_brute, '_find_best_angle_masked', side_effect=fake):
                     stos_brute.SliceToSliceRigidRegistration(
                         self.target, self.source, AngleSearchRange=[0.0, 10.0, 20.0, 30.0],
                         method=SliceToSliceMethod.BruteForce, search_scale=search_scale,
@@ -474,28 +469,36 @@ class TestSearchExecutionRouting(_EnvIsolated):
                         SingleThread=False, Cluster=True, cancel_event=self.event,
                         progress_callback=self.callback, use_gpu=False)
 
-                # The upright and flipped sweeps carry Cluster; the finalize angle refine has
-                # never passed it (``_find_best_angle`` overrides use_cluster to False anyway).
-                self.assertGreaterEqual(sum('use_cluster' in kw for kw in calls), 2)
-                self.assertIn('use_cluster', calls[0], 'the upright sweep must receive Cluster')
-                for kw in calls:
-                    self._assert_flags(kw, use_cluster='use_cluster' in kw)
+                self.assertGreaterEqual(len({id(c[0]) for c in calls}), 2, 'upright and flipped sweeps')
+                for _scorer, _angles, _scale, execution in calls:
+                    self.assertIs(self.event, execution.cancel_event)
+                    self.assertIs(self.callback, execution.progress_callback)
                 if not search_scale:
-                    self._assert_unscaled_pair(calls[0])
+                    self.assertEqual(1.0, calls[0][2])
 
     def test_the_logpolar_fallback_routes_its_flags_to_every_sweep(self):
-        calls: list[dict] = []
-        fake = self._recording_find_best_angle(calls)
+        """Since stage 3b the fallback sweeps score by masked NCC (``_find_best_angle_masked``).
+
+        Each of the three passes (adaptive, widened, full sweep) gets the caller's cancel event and
+        progress callback, the unscaled source, and the masked scorer built from the caller's pair at
+        the caller's overlap.
+        """
+        calls: list[tuple] = []
+
+        def fake(scorer, angle_range, source_scale, execution):
+            calls.append((scorer, [float(a) for a in angle_range], source_scale, execution))
+            angles = calls[-1][1]
+            return nornir_imageregistration.AlignmentRecord(
+                peak=(0.0, 0.0), weight=1.0 + 0.01 * len(calls), angle=angles[len(angles) // 2])
+
         diagnostics = stos_brute.LogPolarDiagnostics(
             angle_peak_ratio=1.05, translation_peak_ratio=1.02, strength_delta_ratio=0.05,
             degrees_per_pixel=1.0, peak_strength=1.0)
         ambiguous = stos_brute.AngleScaleResult(angle=10.0, scale=1.0, weight=1.0,
                                                 translation=(0.0, 0.0), ambiguous=True,
                                                 diagnostics=diagnostics)
-        with mock.patch.object(stos_brute, '_find_best_angle', side_effect=fake), \
-                mock.patch.object(stos_brute, '_find_angle_and_scale_with_logpolar',
-                                  return_value=ambiguous), \
-                mock.patch.object(stos_brute, '_brute_fallback_needs_widen', return_value=True):
+        with mock.patch.object(stos_brute, '_find_best_angle_masked', side_effect=fake),                 mock.patch.object(stos_brute, '_find_angle_and_scale_with_logpolar',
+                                  return_value=ambiguous),                 mock.patch.object(stos_brute, '_brute_fallback_needs_widen', return_value=True):
             stos_brute.SliceToSliceRigidRegistration(
                 self.target, self.source, AngleSearchRange=[0.0, 10.0, 20.0, 30.0],
                 method=SliceToSliceMethod.LogPolar, TestFlip=False, MinOverlap=self._MIN_OVERLAP,
@@ -503,12 +506,14 @@ class TestSearchExecutionRouting(_EnvIsolated):
                 Cluster=True, cancel_event=self.event, progress_callback=self.callback,
                 use_gpu=False)
 
-        self.assertEqual(3, len(calls), 'adaptive, widened and full-sweep fallback passes')
-        for kw in calls:
-            self._assert_flags(kw)
-            self._assert_unscaled_pair(kw)
-        self.assertEqual([0.0, 10.0, 20.0, 30.0], sorted(float(a) for a in calls[2]['angle_range']))
-
+        sweeps = calls[:3]
+        self.assertEqual(3, len(sweeps), 'adaptive, widened and full-sweep fallback passes')
+        for scorer, _angles, source_scale, execution in sweeps:
+            self.assertIs(self.event, execution.cancel_event)
+            self.assertIs(self.callback, execution.progress_callback)
+            self.assertEqual(1.0, source_scale)
+            self.assertIs(sweeps[0][0], scorer, 'one scorer, built once for the upright source')
+        self.assertEqual([0.0, 10.0, 20.0, 30.0], sorted(sweeps[2][1]))
 
 class TestDecimationScale(unittest.TestCase):
 
