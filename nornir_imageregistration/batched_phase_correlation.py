@@ -150,8 +150,9 @@ def batched_find_peak(images: NDArray[np.floating],
 
     :param images: ``(N, h, w)`` correlation images, expected normalized to
         ``[0, 1]`` per image.
-    :param overlap_mask: Optional ``(h, w)`` boolean mask of eligible peak
-        locations, shared across the batch.
+    :param overlap_mask: Optional boolean mask of eligible peak locations: ``(h, w)`` shared
+        across the batch, or ``(N, h, w)`` per image (masked NCC, where each pair's valid
+        shifts differ).
     :param centroid_radius: Half-width of the centroid refinement window.
     :param peak_ratio_exclusion_radius: Half-width cleared around the primary
         peak before measuring uniqueness (primary / 2nd peak).
@@ -170,13 +171,14 @@ def batched_find_peak(images: NDArray[np.floating],
         if xp_mask is not xp:
             overlap_mask = xp.asarray(overlap_mask)
         mask2d = overlap_mask.astype(xp.bool_)
+        mask3d = mask2d if mask2d.ndim == 3 else mask2d[None, :, :]
         # Argmax should ignore non-overlap pixels.
-        search = xp.where(mask2d[None, :, :], images, xp.asarray(-xp.inf, dtype=images.dtype))
+        search = xp.where(mask3d, images, xp.asarray(-xp.inf, dtype=images.dtype))
         # Keep the count on-device: float(xp.count_nonzero(...)) forces a host sync and
         # can raise CuPy implicit-conversion errors under some backends.
-        mask_count = xp.asarray(xp.count_nonzero(mask2d), dtype=images.dtype)
+        mask_count = xp.asarray(mask3d.sum(axis=(-2, -1)), dtype=images.dtype)
         mean_pixel = (
-            (images * mask2d[None, :, :]).sum(axis=(-2, -1))
+            (images * mask3d).sum(axis=(-2, -1))
             / xp.maximum(mask_count, xp.asarray(1.0, dtype=images.dtype))
         )
     else:

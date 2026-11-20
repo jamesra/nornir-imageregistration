@@ -118,9 +118,11 @@ def batched_masked_peak_ratios(
 
     if overlap_mask is not None:
         mask = xp.asarray(overlap_mask, dtype=xp.bool_)
-        if mask.shape != (h, w):
-            raise ValueError("overlap_mask must be (h, w)")
-        search = xp.where(mask[None, :, :], search, neg_inf)
+        if mask.shape == (h, w):
+            mask = mask[None, :, :]
+        elif mask.shape != (n, h, w):
+            raise ValueError("overlap_mask must be (h, w) or (N, h, w)")
+        search = xp.where(mask, search, neg_inf)
 
     second = search.reshape(n, -1).max(axis=1)
     safe_second = xp.maximum(second, xp.asarray(1e-6, dtype=images.dtype))

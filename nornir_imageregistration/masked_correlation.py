@@ -34,6 +34,8 @@ except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
     import nornir_imageregistration.cupyx_thunk as cupyx
 
+from nornir_imageregistration.batched_phase_correlation import batched_find_peak
+from nornir_imageregistration.peak_uniqueness import DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS
 from nornir_imageregistration.phasecorrelation import find_peak
 
 # Normalized convolution: where the blurred mask falls below this fraction of its full value the local
@@ -301,6 +303,70 @@ def _offset_from_surface(ncc: NDArray, overlap: NDArray, fixed_shape: tuple[int,
         peak=offset, weight=peak.peak_strength, peak_ratio=float(peak.peak_ratio))
     return MaskedOffsetResult(record, peak_ncc, peak_overlap)
 
+
+
+class BatchedMaskedOffsets(NamedTuple):
+    """Per-pair results of :func:`masked_find_offset_batched`, all on the input array module."""
+    peaks: NDArray  # (N, 2) centre-to-centre offsets (dy, dx); 0 where the pair has no valid shift
+    weights: NDArray  # (N,) peak / mean of the [0, 1] significance surface; 0 = no valid shift
+    peak_ratios: NDArray  # (N,) peak / second peak outside the exclusion radius
+    ncc: NDArray  # (N,) raw masked NCC at the peak sample; NaN where the pair has no valid shift
+
+
+def masked_find_offset_batched(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
+                               moving: NDArray, moving_mask: NDArray[np.bool_] | None,
+                               *,
+                               bandpass_sigmas: tuple[float, float] | None = None,
+                               min_overlap_fraction: float = DEFAULT_MIN_OVERLAP_FRACTION,
+                               centroid_radius: int = 1,
+                               peak_ratio_exclusion_radius: int | None = None,
+                               ) -> BatchedMaskedOffsets:
+    """:func:`masked_find_offset` over ``(N, h, w)`` stacks, with the batched peak finder.
+
+    The surfaces are the serial ones (same band-pass, masked NCC and significance); only the peak
+    refinement differs, as between ``find_offset`` and ``batched_find_offset``: a centroid window
+    instead of a connected component (see ``batched_find_peak``). Accepts NumPy or CuPy.
+    """
+    xp = cp.get_array_module(fixed)
+    if fixed.ndim != 3 or moving.ndim != 3:
+        raise ValueError("fixed and moving must be (N, h, w) stacks")
+    if bandpass_sigmas is None:
+        bandpass_sigmas = default_bandpass_sigmas(fixed.shape)
+    if peak_ratio_exclusion_radius is None:
+        peak_ratio_exclusion_radius = DEFAULT_PEAK_RATIO_EXCLUSION_RADIUS
+    f, f_valid = masked_bandpass(fixed, fixed_mask, *bandpass_sigmas)
+    g, g_valid = masked_bandpass(moving, moving_mask, *bandpass_sigmas)
+    ncc, overlap = masked_ncc_surface(f, f_valid, g, g_valid, min_overlap_fraction)
+
+    score = significance_surface(ncc, overlap, xp)
+    valid = xp.isfinite(score)
+    positive = xp.where(valid, xp.maximum(score, 0.0), 0.0)
+    top = positive.max(axis=(-2, -1), keepdims=True)
+    has_peak = top > 0
+    surface = positive / xp.where(has_peak, top, 1.0)
+    eligible = valid & has_peak
+
+    peaks, weights, peak_ratios = batched_find_peak(
+        surface, eligible, centroid_radius=centroid_radius,
+        peak_ratio_exclusion_radius=int(peak_ratio_exclusion_radius))
+    found = has_peak.reshape(-1)
+    zero = xp.asarray(0.0, dtype=weights.dtype)
+    weights = xp.where(found, weights, zero)
+    peak_ratios = xp.where(found, peak_ratios, zero)
+    peaks = xp.where(found[:, None], peaks, xp.asarray(0.0, dtype=peaks.dtype))
+
+    n, h, w = surface.shape
+    centre = xp.asarray((h // 2, w // 2), dtype=peaks.dtype)
+    sample = xp.rint(centre[None, :] - peaks).astype(xp.int64)
+    rows = xp.clip(sample[:, 0], 0, h - 1)
+    cols = xp.clip(sample[:, 1], 0, w - 1)
+    peak_ncc = xp.where(found, ncc[xp.arange(n), rows, cols], xp.nan)
+
+    size_shift = xp.asarray(
+        (np.asarray(moving.shape[-2:], dtype=np.float64) - np.asarray(fixed.shape[-2:], dtype=np.float64)) / 2.0,
+        dtype=peaks.dtype)
+    peaks = xp.where(found[:, None], peaks + size_shift[None, :], peaks)
+    return BatchedMaskedOffsets(peaks, weights, peak_ratios, peak_ncc)
 
 class MaskedNccSweep:
     """Masked NCC of one band-passed fixed image against many moving images of bounded size.

@@ -267,5 +267,61 @@ class TestMaskedCorrelationCupyParity(unittest.TestCase):
         self.assertAlmostEqual(device.ncc, host.ncc, places=6)
 
 
+
+class TestMaskedFindOffsetBatched(unittest.TestCase):
+    """The batched form (refine grid cells) agrees with the serial one pair by pair."""
+
+    def _stack(self):
+        shifts = [(5, -9), (0, 0), (-12, 3), (7, 4)]
+        cuts = [0, 20, 40, 60]  # masked columns down the left side: none, a little, much, most
+        fixed, moving, fixed_mask, moving_mask = [], [], [], []
+        for i, (shift, cut) in enumerate(zip(shifts, cuts)):
+            f, g = TestMaskedFindOffset._pair(None, shift, seed=20 + i)  # type: ignore[arg-type]
+            mf = np.ones(f.shape, bool)
+            mf[:, :cut] = False
+            mg = np.ones(g.shape, bool)
+            mg[:, :cut] = False
+            f, g = f.copy(), g.copy()
+            f[~mf] = 0.0
+            g[~mg] = 1e3  # masked values never take part
+            fixed.append(f)
+            moving.append(g)
+            fixed_mask.append(mf)
+            moving_mask.append(mg)
+        return (np.stack(fixed), np.stack(fixed_mask), np.stack(moving), np.stack(moving_mask))
+
+    def test_matches_the_serial_offsets(self) -> None:
+        fixed, fixed_mask, moving, moving_mask = self._stack()
+        batched = mc.masked_find_offset_batched(fixed, fixed_mask, moving, moving_mask)
+        for i in range(fixed.shape[0]):
+            with self.subTest(pair=i):
+                serial = mc.masked_find_offset(fixed[i], fixed_mask[i], moving[i], moving_mask[i])
+                np.testing.assert_allclose(batched.peaks[i], serial.record.peak, atol=0.25)
+                self.assertAlmostEqual(float(batched.ncc[i]), serial.ncc, places=6)
+                self.assertGreater(float(batched.weights[i]), 0.0)
+                self.assertGreater(float(batched.peak_ratios[i]), 1.0)
+
+    def test_a_fully_masked_pair_has_no_peak_and_leaves_the_others_alone(self) -> None:
+        fixed, fixed_mask, moving, moving_mask = self._stack()
+        whole = mc.masked_find_offset_batched(fixed, fixed_mask, moving, moving_mask)
+        moving_mask = moving_mask.copy()
+        moving_mask[1] = False
+        result = mc.masked_find_offset_batched(fixed, fixed_mask, moving, moving_mask)
+        self.assertEqual(float(result.weights[1]), 0.0)
+        self.assertEqual(float(result.peak_ratios[1]), 0.0)
+        self.assertTrue(np.isnan(float(result.ncc[1])))
+        np.testing.assert_array_equal(result.peaks[1], (0.0, 0.0))
+        for i in (0, 2, 3):
+            np.testing.assert_allclose(result.peaks[i], whole.peaks[i], atol=1e-9)
+
+    @unittest.skipUnless(_HAVE_CUPY, "needs CUDA")
+    def test_cupy_matches_numpy(self) -> None:
+        fixed, fixed_mask, moving, moving_mask = self._stack()
+        host = mc.masked_find_offset_batched(fixed, fixed_mask, moving, moving_mask)
+        device = mc.masked_find_offset_batched(cupy.asarray(fixed), cupy.asarray(fixed_mask),
+                                               cupy.asarray(moving), cupy.asarray(moving_mask))
+        np.testing.assert_allclose(cupy.asnumpy(device.peaks), host.peaks, atol=1e-6)
+        np.testing.assert_allclose(cupy.asnumpy(device.ncc), host.ncc, atol=1e-6)
+
 if __name__ == '__main__':
     unittest.main()
