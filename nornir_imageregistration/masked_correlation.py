@@ -100,7 +100,8 @@ def _flat_tolerance(values, valid, xp):
     count = xp.maximum(valid.sum(axis=axes, keepdims=True), 1)
     mean = values.sum(axis=axes, keepdims=True) / count
     var = (xp.where(valid, values - mean, 0.0) ** 2).sum(axis=axes, keepdims=True) / count
-    return xp.maximum(var, 1e-300) * _FLAT_VARIANCE_FRACTION
+    # Floor at tiny / fraction so the product is never subnormal (float32 underflow warnings).
+    return xp.maximum(var, float(np.finfo(var.dtype).tiny) / _FLAT_VARIANCE_FRACTION) * _FLAT_VARIANCE_FRACTION
 
 
 def masked_ncc_surface(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
@@ -122,47 +123,79 @@ def masked_ncc_surface(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
     xp = cp.get_array_module(fixed)
     fixed = xp.asarray(fixed, dtype=xp.float64)
     moving = xp.asarray(moving, dtype=xp.float64)
-    f_valid = xp.isfinite(fixed) if fixed_mask is None else (xp.asarray(fixed_mask, dtype=bool) & xp.isfinite(fixed))
-    m_valid = xp.isfinite(moving) if moving_mask is None else (xp.asarray(moving_mask, dtype=bool) & xp.isfinite(moving))
-    f = xp.where(f_valid, fixed, 0.0)
-    g = xp.where(m_valid, moving, 0.0)
-    mf = f_valid.astype(xp.float64)
-    mg = m_valid.astype(xp.float64)
+    size = _correlation_size(fixed.shape, moving.shape)
+    fixed_side = _SideSpectra.create(fixed, fixed_mask, size, xp.float64)
+    moving_side = _SideSpectra.create(moving, moving_mask, size, xp.float64)
+    return _ncc_from_spectra(fixed_side, moving_side, size, min_overlap_fraction, xp)
 
-    h = fixed.shape[-2] + moving.shape[-2] - 1
-    w = fixed.shape[-1] + moving.shape[-1] - 1
-    size = (scipy.fft.next_fast_len(h, real=True), scipy.fft.next_fast_len(w, real=True))
-    axes = (-2, -1)
 
-    def rfft(a):
-        return xp.fft.rfft2(a, s=size, axes=axes)
+def _correlation_size(fixed_shape: tuple[int, ...], moving_shape: tuple[int, ...]) -> tuple[int, int]:
+    """FFT size for a linear (not circular) correlation of the two images."""
+    return (scipy.fft.next_fast_len(fixed_shape[-2] + moving_shape[-2] - 1, real=True),
+            scipy.fft.next_fast_len(fixed_shape[-1] + moving_shape[-1] - 1, real=True))
 
+
+def _rfft2(a, size: tuple[int, int], xp):
+    """Real 2-D FFT over the last two axes, zero-padded to *size*; SciPy on all cores for NumPy."""
+    if xp is np:
+        return scipy.fft.rfft2(a, s=size, axes=(-2, -1), workers=-1)
+    return xp.fft.rfft2(a, s=size, axes=(-2, -1))
+
+
+def _irfft2(a_hat, size: tuple[int, int], xp):
+    """Inverse of :func:`_rfft2`."""
+    if xp is np:
+        return scipy.fft.irfft2(a_hat, s=size, axes=(-2, -1), workers=-1)
+    return xp.fft.irfft2(a_hat, s=size, axes=(-2, -1))
+
+
+class _SideSpectra(NamedTuple):
+    """One image's part of Padfield's masked NCC: spectra of I*M, I^2*M and M, and its gate inputs."""
+    shape: tuple[int, ...]
+    values_hat: NDArray
+    squares_hat: NDArray
+    mask_hat: NDArray
+    valid_count: NDArray
+    flat_tolerance: NDArray
+
+    @staticmethod
+    def create(image: NDArray, mask: NDArray[np.bool_] | None, size: tuple[int, int], dtype) -> _SideSpectra:
+        """Spectra of *image* (valid where *mask* and finite), zero-padded to *size*, computed in *dtype*."""
+        xp = cp.get_array_module(image)
+        image = xp.asarray(image, dtype=dtype)
+        valid = xp.isfinite(image) if mask is None else (xp.asarray(mask, dtype=bool) & xp.isfinite(image))
+        values = xp.where(valid, image, 0.0).astype(dtype, copy=False)
+        return _SideSpectra(tuple(image.shape), _rfft2(values, size, xp), _rfft2(values * values, size, xp),
+                            _rfft2(valid.astype(dtype), size, xp), valid.sum(axis=(-2, -1), keepdims=True),
+                            _flat_tolerance(values, valid, xp))
+
+
+def _ncc_from_spectra(fixed: _SideSpectra, moving: _SideSpectra, size: tuple[int, int],
+                      min_overlap_fraction: float, xp) -> tuple[NDArray, NDArray]:
+    """The masked NCC surface and overlap count from both sides' spectra; see :func:`masked_ncc_surface`."""
     def corr(a_hat, b_hat):
         # sum_x a(x) b(x + k): the conjugate sits on the fixed side, as in fft_phase_correlation.
-        return xp.fft.irfft2(xp.conj(a_hat) * b_hat, s=size, axes=axes)
+        return _irfft2(xp.conj(a_hat) * b_hat, size, xp)
 
-    f_hat, f2_hat, mf_hat = rfft(f), rfft(f * f), rfft(mf)
-    g_hat, g2_hat, mg_hat = rfft(g), rfft(g * g), rfft(mg)
-
-    overlap = xp.rint(corr(mf_hat, mg_hat))
-    sum_f = corr(f_hat, mg_hat)
-    sum_f2 = corr(f2_hat, mg_hat)
-    sum_g = corr(mf_hat, g_hat)
-    sum_g2 = corr(mf_hat, g2_hat)
-    sum_fg = corr(f_hat, g_hat)
-    del f_hat, f2_hat, mf_hat, g_hat, g2_hat, mg_hat
+    overlap = xp.rint(corr(fixed.mask_hat, moving.mask_hat))
+    sum_f = corr(fixed.values_hat, moving.mask_hat)
+    sum_f2 = corr(fixed.squares_hat, moving.mask_hat)
+    sum_g = corr(fixed.mask_hat, moving.values_hat)
+    sum_g2 = corr(fixed.mask_hat, moving.squares_hat)
+    sum_fg = corr(fixed.values_hat, moving.values_hat)
 
     safe_n = xp.maximum(overlap, 1.0)
     var_f = sum_f2 - sum_f * sum_f / safe_n
     var_g = sum_g2 - sum_g * sum_g / safe_n
     cov = sum_fg - sum_f * sum_g / safe_n
 
-    min_valid = xp.minimum(f_valid.sum(axis=axes, keepdims=True), m_valid.sum(axis=axes, keepdims=True))
+    min_valid = xp.minimum(fixed.valid_count, moving.valid_count)
     min_overlap = xp.maximum(min_overlap_fraction * min_valid, 2.0)
     ok = ((overlap >= min_overlap)
-          & (var_f > _flat_tolerance(f, f_valid, xp) * overlap)
-          & (var_g > _flat_tolerance(g, m_valid, xp) * overlap))
-    ncc = xp.where(ok, cov / xp.sqrt(xp.maximum(var_f * var_g, 1e-300)), xp.nan)
+          & (var_f > fixed.flat_tolerance * overlap)
+          & (var_g > moving.flat_tolerance * overlap))
+    tiny = float(np.finfo(var_f.dtype).tiny)  # 1e-300 is 0 in float32
+    ncc = xp.where(ok, cov / xp.sqrt(xp.maximum(var_f * var_g, tiny)), xp.nan)
     ncc = xp.clip(ncc, -1.0, 1.0)
 
     # Keep only shifts with any overlap, k in [-(h1-1), h2-1] per axis, laid out so that index
@@ -242,6 +275,12 @@ def masked_find_offset(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
     f, f_valid = masked_bandpass(fixed, fixed_mask, *bandpass_sigmas)
     g, g_valid = masked_bandpass(moving, moving_mask, *bandpass_sigmas)
     ncc, overlap = masked_ncc_surface(f, f_valid, g, g_valid, min_overlap_fraction)
+    return _offset_from_surface(ncc, overlap, fixed.shape, moving.shape, xp)
+
+
+def _offset_from_surface(ncc: NDArray, overlap: NDArray, fixed_shape: tuple[int, ...],
+                         moving_shape: tuple[int, ...], xp) -> MaskedOffsetResult:
+    """Peak of a masked NCC surface's significance, as the centre-to-centre offset of moving over fixed."""
     surface, eligible = surface_for_peak_finding(significance_surface(ncc, overlap, xp), xp)
 
     if not bool(eligible.any()):
@@ -250,8 +289,8 @@ def masked_find_offset(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
 
     peak = find_peak(surface, eligible, allow_in_place=False)
     origin = np.asarray(peak.scaled_offset, dtype=np.float64)
-    offset = origin + (np.asarray(moving.shape[-2:], dtype=np.float64)
-                       - np.asarray(fixed.shape[-2:], dtype=np.float64)) / 2.0
+    offset = origin + (np.asarray(moving_shape[-2:], dtype=np.float64)
+                       - np.asarray(fixed_shape[-2:], dtype=np.float64)) / 2.0
 
     centre = np.asarray(surface.shape, dtype=np.int64) // 2
     row, col = (int(v) for v in np.clip(np.rint(centre - origin), 0, np.asarray(surface.shape) - 1))
@@ -261,3 +300,34 @@ def masked_find_offset(fixed: NDArray, fixed_mask: NDArray[np.bool_] | None,
     record = nornir_imageregistration.AlignmentRecord(
         peak=offset, weight=peak.peak_strength, peak_ratio=float(peak.peak_ratio))
     return MaskedOffsetResult(record, peak_ncc, peak_overlap)
+
+
+class MaskedNccSweep:
+    """Masked NCC of one band-passed fixed image against many moving images of bounded size.
+
+    StosBrute scores the same target against the source at every candidate angle and scale. The FFT
+    size is fixed by *max_moving_shape*, so the fixed image's three spectra are computed once and each
+    moving image costs three forward and six inverse FFTs. Both inputs must already be band-passed
+    (:func:`masked_bandpass`); masks are True where valid. NumPy or CuPy, following *fixed*.
+
+    *dtype* float32 halves memory and, on consumer GPUs, is many times faster than float64. The
+    variances are differences of sums, so float32 is safe only on band-passed (near zero-mean) input;
+    ``tests/test_masked_correlation.py`` checks the peak against the float64 surface.
+    """
+
+    def __init__(self, fixed: NDArray, fixed_valid: NDArray[np.bool_], max_moving_shape: tuple[int, int],
+                 min_overlap_fraction: float = DEFAULT_MIN_OVERLAP_FRACTION, dtype=np.float32) -> None:
+        self._xp = cp.get_array_module(fixed)
+        self._dtype = dtype
+        self._min_overlap_fraction = float(min_overlap_fraction)
+        self._max_moving_shape = (int(max_moving_shape[0]), int(max_moving_shape[1]))
+        self._size = _correlation_size(fixed.shape, self._max_moving_shape)
+        self._fixed = _SideSpectra.create(fixed, fixed_valid, self._size, dtype)
+
+    def find_offset(self, moving: NDArray, moving_valid: NDArray[np.bool_]) -> MaskedOffsetResult:
+        """Offset of *moving* over the fixed image, as :func:`masked_find_offset` returns it."""
+        if moving.shape[-2] > self._max_moving_shape[0] or moving.shape[-1] > self._max_moving_shape[1]:
+            raise ValueError(f"moving image {moving.shape} is larger than the sweep's {self._max_moving_shape}")
+        moving_side = _SideSpectra.create(moving, moving_valid, self._size, self._dtype)
+        ncc, overlap = _ncc_from_spectra(self._fixed, moving_side, self._size, self._min_overlap_fraction, self._xp)
+        return _offset_from_surface(ncc, overlap, self._fixed.shape, tuple(moving.shape), self._xp)

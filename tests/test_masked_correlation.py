@@ -154,6 +154,39 @@ class TestMaskedFindOffset(unittest.TestCase):
         self.assertTrue(np.isnan(result.ncc))
 
 
+class TestMaskedNccSweep(unittest.TestCase):
+    """One fixed image against many moving images with cached fixed spectra (StosBrute's angle sweep)."""
+
+    def _bandpassed(self, image, mask):
+        return mc.masked_bandpass(image, mask, *mc.default_bandpass_sigmas(image.shape))
+
+    def test_matches_masked_find_offset_for_smaller_moving_images(self) -> None:
+        big = _texture((260, 260), 21, sigma=1.5)
+        fixed = big[30:230, 30:230]
+        f, fv = self._bandpassed(fixed, None)
+        fv = fv.copy()
+        fv[:, :60] = False
+        sweep = mc.MaskedNccSweep(f, fv, (190, 200), min_overlap_fraction=0.25)
+        for shape, shift in (((190, 200), (6, -4)), ((150, 170), (-9, 13))):
+            with self.subTest(shape=shape):
+                y0, x0 = 30 + shift[0], 30 + shift[1]
+                moving = big[y0:y0 + shape[0], x0:x0 + shape[1]]
+                g, gv = self._bandpassed(moving, None)
+                got = sweep.find_offset(g, gv)
+                want = mc._offset_from_surface(*mc.masked_ncc_surface(f, fv, g, gv, 0.25),
+                                               f.shape, g.shape, np)
+                np.testing.assert_allclose(got.record.peak, want.record.peak, atol=0.05)
+                self.assertAlmostEqual(got.ncc, want.ncc, places=3)
+                self.assertEqual(got.overlap, want.overlap)
+
+    def test_a_moving_image_larger_than_the_sweep_is_refused(self) -> None:
+        f, fv = self._bandpassed(_texture((64, 64), 3), None)
+        sweep = mc.MaskedNccSweep(f, fv, (40, 40))
+        g, gv = self._bandpassed(_texture((41, 40), 4), None)
+        with self.assertRaises(ValueError):
+            sweep.find_offset(g, gv)
+
+
 class TestSignificance(unittest.TestCase):
 
     def test_the_same_ncc_over_a_larger_overlap_ranks_higher(self) -> None:

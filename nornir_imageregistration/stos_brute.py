@@ -373,6 +373,9 @@ class _RegistrationPair:
     source_stats: nornir_imageregistration.ImageStats
     target_stats: nornir_imageregistration.ImageStats
     min_overlap: float
+    # Scores poses by masked NCC significance when the images' masks are known (masked
+    # registration stage 3b). None scores by phase correlation (ScoreOneAngle).
+    scorer: '_MaskedPoseScorer | None' = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -496,6 +499,11 @@ def _find_best_angle_common_random(
     source_shape = tuple(int(s) for s in source_image.shape[:2])
     target_shape = tuple(int(s) for s in target_image.shape[:2])
     for angle in angles:
+        if pair.scorer is not None:
+            record = pair.scorer.score(float(angle), 1.0)
+            if best is None or float(record.weight) > float(best.weight):
+                best = record
+            continue
         nornir_imageregistration.seed_random_data(random_seed)
         record = ScoreOneAngle(
             target_original=target_image,
@@ -757,6 +765,8 @@ def _refine_scale_from_seeds(pair: _RegistrationPair,
         return best_scale
 
     def _weight(scale: float) -> float:
+        if pair.scorer is not None:
+            return float(pair.scorer.score(angle, float(scale)).weight)
         return float(ScoreOneAngle(
             target_original=pair.target_image,
             source_original=pair.source_image,
@@ -789,6 +799,8 @@ def _refine_scale_local(pair: _RegistrationPair,
     seed = float(np.clip(initial_scale, _SCALE_REFINE_MIN, _SCALE_REFINE_MAX))
 
     def _score(scale: float) -> float:
+        if pair.scorer is not None:
+            return float(pair.scorer.score(angle, float(scale)).weight)
         record = ScoreOneAngle(
             target_original=pair.target_image,
             source_original=pair.source_image,
@@ -1017,6 +1029,76 @@ def _masked_translation_at_pose(target_image: NDArray, target_mask: NDArray[np.b
     if not np.isfinite(result.ncc):
         return None
     return np.asarray(result.record.peak, dtype=np.float64)
+
+
+_MASKED_SCORER_SCALE_HEADROOM = 1.05
+"""The scorer's FFT frame holds the source scaled up to this much past the largest refine scale."""
+
+
+def _rotate_values(image: NDArray, angle: float) -> NDArray:
+    """Rotate *image* into :func:`rotate_image`'s frame and shape, filling outside the source with 0."""
+    if angle == 0:
+        return image
+    xp = cp.get_array_module(image)
+    as_float = image.astype(np.float32, copy=False)
+    with IgnoreUnderflow():
+        if xp is not np:
+            return _rotate_reshape_bucketed_cupy(as_float, -angle, cval=0.0)
+        return cupyx.scipy.get_array_module(as_float).ndimage.rotate(as_float, axes=(1, 0), angle=-angle,
+                                                                     cval=0.0)
+
+
+class _MaskedPoseScorer:
+    """Scores (angle, scale) poses of one source over one target by masked NCC significance.
+
+    Both images are band-passed once on their valid pixels (mask and extrema); each pose then
+    rotates and scales the band-passed source and its mask, and one :class:`MaskedNccSweep`
+    (target spectra computed once) finds the best translation. The record's weight is the
+    significance ``atanh(r) * sqrt(n)`` at that translation (masked_correlation.significance_surface):
+    unlike a phase-correlation weight it does not depend on noise fill, so it is the same on every
+    run, and it compares poses with different overlaps fairly. NumPy or CuPy, following the images.
+    """
+
+    def __init__(self, target_image: NDArray, target_mask: NDArray[np.bool_],
+                 source_image: NDArray, source_mask: NDArray[np.bool_], min_overlap: float) -> None:
+        xp = cp.get_array_module(target_image)
+        source_image = _coerce_to_source_module(source_image, xp)
+        sigmas = nornir_imageregistration.masked_correlation.default_bandpass_sigmas(target_image.shape)
+        self._target, self._target_valid = nornir_imageregistration.masked_correlation.masked_bandpass(
+            target_image, _coerce_to_source_module(target_mask, xp), *sigmas)
+        self._source, self._source_valid = nornir_imageregistration.masked_correlation.masked_bandpass(
+            source_image, _coerce_to_source_module(source_mask, xp), *sigmas)
+        self._source = self._source.astype(np.float32)
+        self._min_overlap = float(min_overlap)
+        self._sweep: nornir_imageregistration.masked_correlation.MaskedNccSweep | None = None
+        self._sweep_bound = 0
+
+    def _sweep_for(self, shape: tuple[int, ...]) -> nornir_imageregistration.masked_correlation.MaskedNccSweep:
+        """The sweep, (re)built so its frame holds a moving image of *shape*."""
+        needed = max(int(shape[0]), int(shape[1]))
+        if self._sweep is None or needed > self._sweep_bound:
+            height, width = self._source.shape
+            diagonal = math.hypot(height, width) * max(_SCALE_REFINE_MAX, 1.0) * _MASKED_SCORER_SCALE_HEADROOM
+            self._sweep_bound = max(needed, math.ceil(diagonal) + 2)
+            self._sweep = nornir_imageregistration.masked_correlation.MaskedNccSweep(
+                self._target, self._target_valid, (self._sweep_bound, self._sweep_bound),
+                min_overlap_fraction=self._min_overlap)
+        return self._sweep
+
+    def score(self, angle: float, source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
+        """Best translation at (*angle*, *source_scale*); weight is its significance, 0 if no shift qualifies."""
+        source, valid = self._source, self._source_valid
+        if not np.isclose(source_scale, 1.0):
+            source = _scale_registration_image(source, source_scale)
+            valid = _scale_mask(valid, source_scale)
+        rotated = _rotate_values(source, angle)
+        rotated_valid = _rotate_mask(valid, angle)
+        result = self._sweep_for(rotated.shape).find_offset(rotated, rotated_valid)
+        if not np.isfinite(result.ncc):
+            return nornir_imageregistration.AlignmentRecord((0.0, 0.0), 0.0, angle, peak_ratio=0.0)
+        significance = math.atanh(min(max(result.ncc, -0.999999), 0.999999)) * math.sqrt(max(result.overlap, 0))
+        return nornir_imageregistration.AlignmentRecord(result.record.peak, significance, angle,
+                                                        peak_ratio=result.record.peak_ratio)
 
 
 _ROTATED_MASK_VALID_MIN = 0.99
@@ -1339,7 +1421,21 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         target_mask = _scale_mask(target_mask, scalar)
         source_mask = _scale_mask(source_mask, scalar)
 
-    def _find_logpolar_with_fallback(candidate_source_image: NDArray[np.floating]) -> AngleScaleResult:
+    scorers: dict[bool, _MaskedPoseScorer] = {}
+
+    def _scorer(candidate_source: NDArray[np.floating], flipped_ud: bool) -> _MaskedPoseScorer:
+        """The masked pose scorer for the upright or flipped source, built once each."""
+        if flipped_ud not in scorers:
+            mask = source_mask
+            if flipped_ud:
+                mask = cp.get_array_module(mask).ascontiguousarray(mask[::-1])
+            scorers[flipped_ud] = _MaskedPoseScorer(_ensure_device_for_scoring(target_image), target_mask,
+                                                    _ensure_device_for_scoring(candidate_source), mask,
+                                                    settings.min_overlap)
+        return scorers[flipped_ud]
+
+    def _find_logpolar_with_fallback(candidate_source_image: NDArray[np.floating],
+                                     flipped_ud: bool) -> AngleScaleResult:
         global _last_hybrid_fallback_stats
 
         logpolar_result = _find_angle_and_scale_with_logpolar(source_image=candidate_source_image,
@@ -1364,7 +1460,8 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         # Uploaded once and shared by every fallback sweep and the scale refine below.
         device_pair = _RegistrationPair(_ensure_device_for_scoring(candidate_source_image),
                                         _ensure_device_for_scoring(target_image),
-                                        source_stats, target_stats, settings.min_overlap)
+                                        source_stats, target_stats, settings.min_overlap,
+                                        scorer=_scorer(candidate_source_image, flipped_ud))
         brute_force_result = _find_best_angle_at_scale(device_pair, fallback_angles, 1.0, execution)
 
         if _brute_fallback_needs_widen(brute_force_result, logpolar_result):
@@ -1437,7 +1534,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     # Replace extrema with noise
     host_source_for_flip = source_image
     if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
-        best_match = _find_logpolar_with_fallback(source_image)
+        best_match = _find_logpolar_with_fallback(source_image, False)
         detected_scale = float(best_match.scale)
         # ScoreOneAngle / narrow-angle refine run on the active GPU backend.
         source_image = _ensure_device_for_scoring(source_image)
@@ -1445,13 +1542,13 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
     elif not settings.search_scale:
         best_match = _find_best_angle_at_scale(
             _RegistrationPair(source_image, target_image, source_stats, target_stats,
-                              settings.min_overlap),
+                              settings.min_overlap, scorer=_scorer(source_image, False)),
             settings.angle_range, 1.0, execution)
         detected_scale = 1.0
     else:
         best_match, detected_scale = _find_best_angle_with_scale_search(
             _RegistrationPair(source_image, target_image, source_stats, target_stats,
-                              settings.min_overlap),
+                              settings.min_overlap, scorer=_scorer(source_image, False)),
             angle_range=settings.angle_range,
             metadata_applied=metadata_scale_iso,
             scale_hint=resolved_scale_hint,
@@ -1459,15 +1556,19 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             force_search=force_scale_search,
         )
 
+    final_significance: dict[bool, float] = {}
+
     def _final_peak(candidate_source: NDArray[np.floating], flipped_ud: bool, angle: float,
                     source_scale: float, phase_peak: NDArray[np.floating]) -> NDArray[np.floating]:
-        """The translation at the chosen pose by masked NCC; the phase-correlation peak if no shift qualifies."""
-        mask = source_mask
-        if flipped_ud:
-            mask = cp.get_array_module(mask).ascontiguousarray(mask[::-1])
-        peak = _masked_translation_at_pose(target_image, target_mask, candidate_source, mask, angle,
-                                           source_scale, settings.min_overlap)
-        return phase_peak if peak is None else peak
+        """The translation at the chosen pose by masked NCC; the phase-correlation peak if no shift qualifies.
+
+        Also records the pose's significance, which decides upright vs flipped.
+        """
+        record = _scorer(candidate_source, flipped_ud).score(angle, source_scale)
+        final_significance[flipped_ud] = float(record.weight)
+        if float(record.weight) <= 0.0:
+            return phase_peak
+        return np.asarray(record.peak, dtype=np.float64)
 
     def _finalize_logpolar_candidate(
             candidate_source: NDArray[np.floating],
@@ -1477,7 +1578,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         detected = float(seed.scale)
         final_angle = float(seed.angle)
         pair = _RegistrationPair(candidate_source, target_image, source_stats, target_stats,
-                                 settings.min_overlap)
+                                 settings.min_overlap, scorer=_scorer(candidate_source, flipped_ud))
         # Narrow refine when the log-polar seed looks soft on *any* of the three
         # diagnostics that feed ``_logpolar_confidence`` — not only a weak angle
         # peak. A sharp angle peak with a flat translation peak (ratio ~1.06) is
@@ -1523,26 +1624,18 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             seed_scale: float,
             flipped_ud: bool) -> nornir_imageregistration.AlignmentRecord:
         """Angle/scale refine + ScoreOneAngle for one BruteForce orientation."""
+        # Narrow angle refine at the seed's scale (the phase sweep this replaced refined at 1.0).
+        candidate_scorer = _scorer(candidate_source, flipped_ud)
         if not settings.angle_range_defined():
-            refined = _find_best_angle(
-                source_image=candidate_source, target_image=target_image,
-                source_stats=source_stats, target_stats=target_stats,
-                angle_range=[(x * 0.2 + seed.angle) for x in range(-9, 10)],
-                min_overlap=settings.min_overlap, SingleThread=SingleThread,
-                cancel_event=cancel_event, progress_callback=progress_callback,
-                use_gpu=use_gpu)
+            refined = _find_best_angle_masked(
+                candidate_scorer, [(x * 0.2 + seed.angle) for x in range(-9, 10)], seed_scale, execution)
         else:
             min_step_size = 0.25
             if len(settings.angle_range) > 2:
                 refined_angle_search_range = NarrowAngleSearchRangeWithResult(
                     settings.angle_range, min_step_size, seed.angle)
-                refined = _find_best_angle(
-                    source_image=candidate_source, target_image=target_image,
-                    source_stats=source_stats, target_stats=target_stats,
-                    angle_range=np.array(list(refined_angle_search_range), float),
-                    min_overlap=settings.min_overlap, SingleThread=SingleThread,
-                    cancel_event=cancel_event, progress_callback=progress_callback,
-                    use_gpu=use_gpu)
+                refined = _find_best_angle_masked(
+                    candidate_scorer, list(refined_angle_search_range), seed_scale, execution)
             else:
                 refined = seed
 
@@ -1552,7 +1645,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 and settings.initial_scale_hint is None)
             detected = _refine_scale_from_seeds(
                 _RegistrationPair(candidate_source, target_image, source_stats, target_stats,
-                                  settings.min_overlap),
+                                  settings.min_overlap, scorer=_scorer(candidate_source, flipped_ud)),
                 float(refined.angle),
                 _refine_scale_seeds(settings, metadata_scale_iso, seed_scale, resolved_scale_hint),
                 wide_search=use_wide_scale_search)
@@ -1594,7 +1687,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         if settings.method == nornir_imageregistration.settings.SliceToSliceMethod.LogPolar:
             host_xp = cp.get_array_module(host_source_for_flip)
             flipped_host = host_xp.flipud(host_source_for_flip)
-            flipped_seed = _find_logpolar_with_fallback(flipped_host)
+            flipped_seed = _find_logpolar_with_fallback(flipped_host, True)
             flipped_source = _ensure_device_for_scoring(flipped_host)
             flipped_final = _finalize_logpolar_candidate(flipped_source, flipped_seed, True)
         else:
@@ -1602,7 +1695,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             flipped_source = _xp_img.flipud(source_image)
             flipped_seed, flipped_scale = _find_best_angle_with_scale_search(
                 _RegistrationPair(flipped_source, target_image, source_stats, target_stats,
-                                  settings.min_overlap),
+                                  settings.min_overlap, scorer=_scorer(flipped_source, True)),
                 angle_range=settings.angle_range,
                 metadata_applied=metadata_scale_iso,
                 scale_hint=resolved_scale_hint,
@@ -1611,7 +1704,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             )
             flipped_final = _finalize_bruteforce_candidate(
                 flipped_source, flipped_seed, flipped_scale, True)
-        if float(flipped_final.weight) > float(upright_final.weight) * _FLIP_FINAL_WEIGHT_MARGIN:
+        # Upright vs flipped by masked significance (same scorer family, same overlap rules),
+        # not by the phase weight, which moves with the noise fill (RC3 1231-1232, 1447-1446).
+        if final_significance.get(True, 0.0) > final_significance.get(False, 0.0) * _FLIP_FINAL_WEIGHT_MARGIN:
             best_refined_match = flipped_final
 
     is_flipped = bool(best_refined_match.flippedud)
@@ -1868,6 +1963,8 @@ def _find_best_angle_at_scale(pair: _RegistrationPair,
                               source_scale: float,
                               execution: _SearchExecution) -> nornir_imageregistration.AlignmentRecord:
     """Angle sweep with the source pre-scaled by *source_scale* (stats recomputed when scaled)."""
+    if pair.scorer is not None:
+        return _find_best_angle_masked(pair.scorer, angle_range, source_scale, execution)
     source_image = pair.source_image
     source_stats = pair.source_stats
     if not np.isclose(source_scale, 1.0):
@@ -1885,6 +1982,23 @@ def _find_best_angle_at_scale(pair: _RegistrationPair,
                             cancel_event=execution.cancel_event,
                             progress_callback=execution.progress_callback,
                             use_gpu=execution.use_gpu)
+
+
+def _find_best_angle_masked(scorer: _MaskedPoseScorer,
+                            angle_range: NDArray[np.floating] | Sequence[float],
+                            source_scale: float,
+                            execution: _SearchExecution) -> nornir_imageregistration.AlignmentRecord:
+    """The best angle by masked NCC significance; serial (each FFT uses every core or the GPU)."""
+    angle_list = [float(a) for a in angle_range]
+    best: nornir_imageregistration.AlignmentRecord | None = None
+    for index, angle in enumerate(angle_list):
+        check_cancelled(execution.cancel_event)
+        report_progress(execution.progress_callback, index + 1, len(angle_list), f"Angle {angle:.1f}\u00b0")
+        record = scorer.score(angle, source_scale)
+        if best is None or float(record.weight) > float(best.weight):
+            best = record
+    assert best is not None
+    return best
 
 
 _COARSE_GRID_DIM_VAR = 'NORNIR_STOS_BRUTE_COARSE_GRID_DIM'
