@@ -12,11 +12,9 @@ from multiprocessing.shared_memory import SharedMemory
 import multiprocessing.sharedctypes
 
 import os
-import errno
 import queue
 import tempfile
 import threading
-import time
 import typing
 import warnings
 import weakref
@@ -66,6 +64,7 @@ import nornir_imageregistration
 import nornir_imageregistration.image_stats
 
 import nornir_pools
+import nornir_shared.files
 import nornir_shared.images
 import nornir_shared.prettyoutput as prettyoutput
 from nornir_imageregistration import ImageLike
@@ -2538,21 +2537,16 @@ def _LoadImageByExtension(ImageFullPath: str, dtype: DTypeLike | None, value_sca
                           crush_gain: bool = False):
     """Load an image, retrying when the filesystem asks us to try again.
 
-    CIFS returns ``EAGAIN`` (errno 11) when too many opens are in flight.
-    A short backoff lets that credit recover instead of failing the tile.
+    CIFS returns ``EAGAIN`` (errno 11) when too many opens are in flight, and ``ECONNABORTED``/``EIO`` while the
+    share reconnects. A backoff (``nornir_shared.files.retry_transient_read``) rides that out instead of failing
+    the tile.
     """
-    for attempt in range(6):
-        try:
-            return _load_image_by_extension_once(ImageFullPath, dtype, value_scale, crush_gain)
-        except OSError as exc:
-            transient = getattr(exc, "errno", None) in (
-                errno.EAGAIN, errno.EWOULDBLOCK, errno.EBUSY)
-            if not transient or attempt == 5:
-                prettyoutput.LogErr(
-                    "IO error loading image {0}\n{1}".format(ImageFullPath, exc))
-                raise
-            time.sleep(0.05 * (2 ** attempt))
-    raise OSError(f"Unable to load image: {ImageFullPath}")
+    try:
+        return nornir_shared.files.retry_transient_read(
+            lambda: _load_image_by_extension_once(ImageFullPath, dtype, value_scale, crush_gain), ImageFullPath)
+    except OSError as exc:
+        prettyoutput.LogErr("IO error loading image {0}\n{1}".format(ImageFullPath, exc))
+        raise
 
 
 def _load_image_by_extension_once(ImageFullPath: str, dtype: DTypeLike | None, value_scale: float | None = None,

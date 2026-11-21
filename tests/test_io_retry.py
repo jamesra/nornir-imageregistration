@@ -89,3 +89,27 @@ def test_histogram_read_survives_transient_ebusy(monkeypatch, raw_tif):
     histogram = image_stats.Histogram([raw_tif], Bpp=16)
     assert calls['n'] >= 2
     assert sum(histogram.Bins) == 64 * 64
+
+
+def test_load_image_survives_connection_abort(monkeypatch, tmp_path):
+    """LoadImage rides out ECONNABORTED while a CIFS share reconnects (RC3, storage2, 2026-11-21)."""
+    import nornir_imageregistration
+    import nornir_shared.files
+    from nornir_imageregistration.core import _core
+
+    path = str(tmp_path / '889.png')
+    Image.fromarray(np.full((8, 8), 7, dtype=np.uint8)).save(path)
+    real_once = _core._load_image_by_extension_once
+    calls = {'n': 0}
+
+    def flaky(*args, **kwargs):
+        calls['n'] += 1
+        if calls['n'] == 1:
+            raise OSError(errno.ECONNABORTED, os.strerror(errno.ECONNABORTED))
+        return real_once(*args, **kwargs)
+
+    monkeypatch.setattr(_core, '_load_image_by_extension_once', flaky)
+    monkeypatch.setattr(nornir_shared.files.time, 'sleep', lambda _s: None)
+    image = nornir_imageregistration.LoadImage(path, dtype=np.uint8)
+    assert calls['n'] == 2
+    assert int(nornir_imageregistration.EnsureNumpyArray(image).max()) == 7
