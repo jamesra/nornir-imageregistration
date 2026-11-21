@@ -5,15 +5,17 @@ Created on Jul 10, 2012
 """
 
 import collections
+import math
 import typing
 from typing import Any, Iterable, Sequence
 
 import numpy as np
+from numpy.typing import NDArray
 
 import nornir_imageregistration
 from nornir_imageregistration import cp
 from nornir_imageregistration.layout import Layout
-import nornir_imageregistration.phasecorrelation
+import nornir_imageregistration.masked_correlation
 import nornir_imageregistration.type_info
 import nornir_pools
 import nornir_shared.prettyoutput
@@ -23,6 +25,14 @@ from nornir_imageregistration.tile_overlap import TileOverlap
 from nornir_imageregistration.mosaic_tileset import MosaicTileset
 from nornir_imageregistration.tile import Tile
 from nornir_imageregistration.translate_report import FailedPair, TranslateReport
+
+MATCH_NCC_RATIO = 0.5
+"""A measured tile offset is a match only if its masked NCC is at least this fraction of the section's
+median. Set from the measured NCC / median of RC1_Crush sections 3 and 4 (ds4, crushed 8-bit):
+true matches 0.74-1.10 (lowest: the 530-610 recapture tiles of section 4), seam pairs with no
+match anywhere in the overlap 0.13-0.20, and the spurious peaks of section 3's damaged region
+(rows 24-41, measured from a drifting layout in later passes) up to 0.59; at 0.5 those spurious
+links pulled the 21-30 column 250-800 px off its confident pairs. See _FindTileOffsets."""
 
 TileOverlapDetails = collections.namedtuple('TileOverlapDetails',
                                             'overlap_ID iTile overlapping_rect')
@@ -193,6 +203,7 @@ def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTiles
 
     stage_reported_overlaps = None
     relaxed_layout = None
+    ncc_by_pair: dict[tuple[int, int], float] = {}  # latest masked NCC per pair, across passes
 
     while iPass >= 0:
         result = GenerateTileOverlaps(tileset=tileset,
@@ -259,7 +270,8 @@ def TranslateTiles2(tileset: nornir_imageregistration.mosaic_tileset.MosaicTiles
                                              existing_layout=translated_layout,
                                              use_feature_score=config.use_feature_score,
                                              mask_extrema=config.mask_extrema,
-                                             failed_pairs=failed_pairs)
+                                             failed_pairs=failed_pairs,
+                                             ncc_by_pair=ncc_by_pair)
 
         scaled_translated_layout = translated_layout.copy()
         # nornir_imageregistration.layout.SetUniformOffsetWeights(scaled_translated_layout)
@@ -687,7 +699,8 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
                      existing_layout: Layout | None = None,
                      use_feature_score: bool = False,
                      mask_extrema: bool = True,
-                     failed_pairs: dict[tuple[int, int], str] | None = None):
+                     failed_pairs: dict[tuple[int, int], str] | None = None,
+                     ncc_by_pair: dict[tuple[int, int], float] | None = None):
     """Populates the OffsetToTile dictionary for tiles
     :param tile_overlaps: List of all tile overlaps or dictionary whose values are tile overlaps
     :param image_to_source_space_scale: downsample level if known.  None causes it to be calculated.
@@ -696,6 +709,10 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
     :param use_feature_score: True if the feature score of the overlapping region should be included in the results and factored into the alignment score
     :param failed_pairs: If given, records why each pair could not be measured, keyed by pair ID;
         a pair measured successfully is removed, so across passes it holds the latest outcome.
+    :param ncc_by_pair: The latest masked NCC of every pair measured so far in this translate (updated
+        here). A pair is kept only if its NCC is at least ``MATCH_NCC_RATIO`` times the median of these:
+        the median stands for what a true match looks like on this section. Pass the same dict on every
+        pass, so a later pass that re-measures only a few pairs is judged against the whole section.
     :return: A layout object describing the optimal adjustment for each tile to align with each neighboring tile
     """
 
@@ -756,6 +773,9 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
         tasks.append(t)
         CalculationCount += 1
 
+    if ncc_by_pair is None:
+        ncc_by_pair = {}
+    measured: list[tuple[TileOverlap, nornir_imageregistration.AlignmentRecord]] = []
     for t in tasks:
         tile_overlap = t.tile_overlap
 
@@ -791,47 +811,81 @@ def _FindTileOffsets(tile_overlaps: dict[Any, TileOverlap] | Sequence[TileOverla
             if failed_pairs is not None:
                 failed_pairs[tile_overlap.ID] = f"ValueError: {e}"
 
-        if failed_pairs is not None and offset is not None:
-            if offset.weight == 0:
-                # __tile_offset_remote returns weight 0 when either overlap region is one solid value.
-                failed_pairs[tile_overlap.ID] = "Overlap region is a single value on one side (weight 0)"
-            else:
-                failed_pairs.pop(tile_overlap.ID, None)
-
         if offset is not None:
-            # Figure out what offset we found vs. what offset we expected
-            # PredictedOffset = tile_overlap.B.FixedBoundingBox.Center - tile_overlap.A.FixedBoundingBox.Center
-            ActualOffset = offset.peak * downsample
+            measured.append((tile_overlap, offset))
+            ncc = float(getattr(offset, 'masked_ncc', float('nan')))
+            if np.isfinite(ncc):
+                ncc_by_pair[tile_overlap.ID] = ncc
+            else:
+                ncc_by_pair.pop(tile_overlap.ID, None)
 
-            # diff = ActualOffset - PredictedOffset
-            # distance = np.sqrt(np.sum(diff ** 2))
-            feature_scores = tile_overlap.normalized_feature_scores
+    # Masked registration stage 5: a pair is a match only if its NCC is in family with the section's
+    # matches. On RC1 section 4 the in-column pairs had NCC 0.67-0.96 (median 0.90) and the seam pairs
+    # whose phase peaks pulled a tile column 600-750 px out had 0.12-0.18 (no peak anywhere in the
+    # overlap), yet the phase weights were 0.38-0.44 against 0.6-2.2. MATCH_NCC_RATIO says how the cut
+    # was set. The median runs over every pair measured so far, so a later pass that re-measures a few
+    # pairs (from a layout that may have drifted) is judged against the whole section. Dropping a pair leaves its
+    # tiles to their other neighbours, or to the stage offset if they have none (the FloatingPointError
+    # branch above explains why no zero-weight spring is kept). Weight-0 records (no valid overlap or a
+    # one-value region) are dropped the same way.
+    finite_ncc = [v for v in ncc_by_pair.values() if np.isfinite(v)]
+    match_threshold = MATCH_NCC_RATIO * float(np.median(finite_ncc)) if finite_ncc else 0.0
+    def _unlink(tile_overlap: TileOverlap) -> None:
+        """Drop the pair's spring from an earlier pass, if it has one (a new pair has none yet)."""
+        a_id, b_id = tile_overlap.A.ID, tile_overlap.B.ID
+        if layout.Contains(a_id) and layout.nodes[a_id].ContainsOffset(b_id):
+            layout.RemoveOverlap((a_id, b_id))
 
-            final_weight = offset.weight
+    for tile_overlap, offset in measured:
+        ncc = float(getattr(offset, 'masked_ncc', float('nan')))
+        if offset.weight <= 0 or not np.isfinite(ncc):
+            _unlink(tile_overlap)
+            if failed_pairs is not None:
+                failed_pairs[tile_overlap.ID] = ("No shift has enough valid overlap, or the overlap region "
+                                                 "is a single value on one side (weight 0)")
+            continue
+        if ncc < match_threshold:
+            _unlink(tile_overlap)
+            if failed_pairs is not None:
+                failed_pairs[tile_overlap.ID] = (f"No match: masked NCC {ncc:.3f} is below {MATCH_NCC_RATIO:g} x "
+                                                 f"the section median ({match_threshold:.3f})")
+            continue
+        if failed_pairs is not None:
+            failed_pairs.pop(tile_overlap.ID, None)
 
-            if use_feature_score:
-                if feature_scores is None:
-                    # Binding f_score only inside a "scores is not None" test left it
-                    # unbound on the first such overlap (UnboundLocalError) and, worse,
-                    # left the *previous* overlap's score bound for every later one,
-                    # since this is a loop body. That silently scaled one overlap's
-                    # weight by an unrelated overlap's texture measurement.
-                    #
-                    # Reaching here means the caller asked to scale by feature score
-                    # without computing one. TranslateSettings.feature_score_calculations_required
-                    # makes ArrangeTilesWithTranslate run ScoreTileOverlaps and
-                    # NormalizeOverlapFeatureScores whenever use_feature_score is set,
-                    # so this is a direct-caller contract violation, not a data case.
-                    raise ValueError(
-                        f"use_feature_score is set but overlap {tile_overlap.ID} has no "
-                        f"normalized_feature_scores. Call NormalizeOverlapFeatureScores on "
-                        f"the overlaps first, or leave use_feature_score off.")
+        # Figure out what offset we found vs. what offset we expected
+        # PredictedOffset = tile_overlap.B.FixedBoundingBox.Center - tile_overlap.A.FixedBoundingBox.Center
+        ActualOffset = offset.peak * downsample
 
-                final_weight *= min(feature_scores)
+        # diff = ActualOffset - PredictedOffset
+        # distance = np.sqrt(np.sum(diff ** 2))
+        feature_scores = tile_overlap.normalized_feature_scores
 
-            # print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
+        final_weight = offset.weight
 
-            layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, final_weight)
+        if use_feature_score:
+            if feature_scores is None:
+                # Binding f_score only inside a "scores is not None" test left it
+                # unbound on the first such overlap (UnboundLocalError) and, worse,
+                # left the *previous* overlap's score bound for every later one,
+                # since this is a loop body. That silently scaled one overlap's
+                # weight by an unrelated overlap's texture measurement.
+                #
+                # Reaching here means the caller asked to scale by feature score
+                # without computing one. TranslateSettings.feature_score_calculations_required
+                # makes ArrangeTilesWithTranslate run ScoreTileOverlaps and
+                # NormalizeOverlapFeatureScores whenever use_feature_score is set,
+                # so this is a direct-caller contract violation, not a data case.
+                raise ValueError(
+                    f"use_feature_score is set but overlap {tile_overlap.ID} has no "
+                    f"normalized_feature_scores. Call NormalizeOverlapFeatureScores on "
+                    f"the overlaps first, or leave use_feature_score off.")
+
+            final_weight *= min(feature_scores)
+
+        # print("%d -> %d = feature score: %.04g align score: %.04g Final Weight: %.04g Dist: %.04g" % (tile_overlap.A.ID, tile_overlap.B.ID, f_score, offset.weight, final_weight, distance))
+
+        layout.SetOffset(tile_overlap.A.ID, tile_overlap.B.ID, ActualOffset, final_weight)
 
     pool.wait_completion()
 
@@ -915,137 +969,106 @@ def __get_overlapping_image(imageparam,
     # return nornir_imageregistration.pad_image_for_phase_correlation(cropped, MinOverlap=1.0, PowerOfTwo=True)
 
 
+class _OverlapRegion(typing.NamedTuple):
+    """One tile's side of an overlap: its in-tile pixels, their validity, and where they sit in the full window."""
+    image: NDArray
+    valid: NDArray[np.bool_]
+    window_shape: tuple[int, int]  # the overlap grown by excess_scalar, before trimming to the tile
+    centre_shift: NDArray[np.floating]  # (y, x) of the trimmed region's centre minus the window's centre
+
+
+def _overlap_region_with_validity(image: NDArray, overlapping_rect, excess_scalar: float,
+                                  mask_extrema: bool) -> _OverlapRegion:
+    """The tile's pixels inside *overlapping_rect* grown by *excess_scalar* (at most 3), with a validity mask.
+
+    The grown window reaches past the tile; those pixels would be invalid (they used to be noise), so the
+    region is trimmed to the part inside the tile. Masked NCC ignores invalid pixels and the band-pass pads
+    with zeros, so trimming changes nothing but the FFT size (RC1 section 3 vertical pairs: a 3000 x 540
+    window around a 1020 px wide tile). With *mask_extrema*, large extrema regions are invalid too.
+    Accepts NumPy or CuPy; ops follow ``cp.get_array_module`` (pool workers run NumPy, but a single
+    pair runs in-process on the session's backend).
+    """
+    excess_scalar = min(float(excess_scalar), 3.0)
+    window = nornir_imageregistration.Rectangle.SafeRound(
+        nornir_imageregistration.Rectangle.CreateFromCenterPointAndArea(
+            overlapping_rect.Center, (overlapping_rect.Height * excess_scalar, overlapping_rect.Width * excess_scalar)))
+    yo, xo = int(window.BottomLeft[0]), int(window.BottomLeft[1])
+    height, width = int(window.Height), int(window.Width)
+    y0, x0 = max(yo, 0), max(xo, 0)
+    y1, x1 = min(yo + height, int(image.shape[0])), min(xo + width, int(image.shape[1]))
+    if y1 <= y0 or x1 <= x0:  # the window misses the tile
+        y1, x1 = y0, x0
+    region = image[y0:y1, x0:x1].astype(np.float32, copy=True)
+    xp = cp.get_array_module(region)
+    if mask_extrema and region.size:
+        valid = xp.asarray(nornir_imageregistration.CreateExtremaMask(image, size_cutoff=0.01)[y0:y1, x0:x1],
+                           dtype=bool)
+    else:
+        valid = xp.ones(region.shape, dtype=bool)
+    region[~valid] = 0
+    centre_shift = (np.array((y0 - yo, x0 - xo), dtype=np.float64)
+                    + (np.array((y1 - y0, x1 - x0), dtype=np.float64) - np.array((height, width))) / 2.0)
+    return _OverlapRegion(region, valid, (height, width), centre_shift)
+
+
 def __tile_offset_remote(A_Filename: str, B_Filename: str,
                          scaled_overlapping_source_rect_A: nornir_imageregistration.type_info.RectLike,
                          scaled_overlapping_source_rect_B,
                          OffsetAdjustment, excess_scalar,
-                         mask_extrema: bool = True,
-                         correlation_coefficient: float | None = None):
-    """
+                         mask_extrema: bool = True) -> nornir_imageregistration.AlignmentRecord:
+    """Offset between two tiles by band-pass + masked NCC over their overlapping regions.
+
     :param A_Filename: Path to tile A
     :param B_Filename: Path to tile B
     :param scaled_overlapping_source_rect_A: Region of overlap on tile A with tile B
     :param scaled_overlapping_source_rect_B: Region of overlap on tile B with tile A
     :param OffsetAdjustment: scaled_offset to account for the (center) position of tile B relative to tile A.  If the overlapping rectangles are perfectly aligned the reported offset would be (0,0).  OffsetAdjustment would be added to that (0,0) result to ensure Tile B remained in the same position.
     :param float excess_scalar: How much additional area should we pad the overlapping rectangles with.
-    :param mask_extrema: If true, mask large regions of continuous extrema regions and replace with noise
-    Return the offset required to align to image files.
-    This function exists to minimize the inter-process communication
+    :param mask_extrema: If true, large regions of continuous extrema take no part in the correlation
+    :return: The record's peak is B's offset from A; ``weight`` is the significance ``atanh(r) * sqrt(n)``
+        of the masked NCC peak (0 when no shift has enough valid overlap or either region is flat), and
+        ``masked_ncc`` holds the peak NCC r (NaN when there is none).
+
+    Masked registration stage 5: the regions used to be noise-filled outside the tile and over extrema,
+    phase-correlated, and weighted by peak/mean times the valid fraction. On RC1 section 4 that gave
+    weak, wrong peaks the same weight as real ones (seam pairs 159-166..165-172: weight 0.38-0.44 vs
+    0.6-2.2, and five in-column pairs 400-2400 px off at the same weight). See _FindTileOffsets for how
+    the NCC decides whether a pair is a match at all.
     """
-
-    MinOverlap = 0.25
-    MaxOverlap = 1
-    # Use the caller-supplied excess_scalar (TranslateSettings). Values above ~1 can
-    # pad into extrema-filled margins on TEM; the crop helper also clamps to 3.
+    min_overlap = 0.25  # of the stage-predicted overlap's area, as the phase correlation's MinOverlap
     dtype = nornir_imageregistration.default_image_dtype()
-
-    ShowImages = False
     A = nornir_imageregistration.LoadImage(A_Filename, dtype=dtype)
     B = nornir_imageregistration.LoadImage(B_Filename, dtype=dtype)
+    side_a = _overlap_region_with_validity(A, scaled_overlapping_source_rect_A, excess_scalar, mask_extrema)
+    side_b = _overlap_region_with_validity(B, scaled_overlapping_source_rect_B, excess_scalar, mask_extrema)
+    del A, B
 
-    # I had to add the .astype call above for DM4 support, but I recall it broke PMG input.  Leave this comment here until the tests are passing
-    #    A = nornir_imageregistration.LoadImage(A_Filename) #.astype(dtype=np.float16)
-    #    B = nornir_imageregistration.LoadImage(B_Filename) #.astype(dtype=np.float16)
+    valid_pixels = min(int(side_a.valid.sum()), int(side_b.valid.sum()))
+    if valid_pixels == 0:
+        return _unmeasured_record(OffsetAdjustment)
+    rect_area = float(scaled_overlapping_source_rect_A.Width * scaled_overlapping_source_rect_A.Height)  # type: ignore[union-attr]
+    min_overlap_fraction = min(1.0, min_overlap * rect_area / valid_pixels)
+    result = nornir_imageregistration.masked_correlation.masked_find_offset(
+        side_a.image, side_a.valid, side_b.image, side_b.valid, min_overlap_fraction=min_overlap_fraction,
+        bandpass_sigmas=nornir_imageregistration.masked_correlation.default_bandpass_sigmas(side_a.window_shape))
+    if not np.isfinite(result.ncc) or result.record.weight <= 0:
+        return _unmeasured_record(OffsetAdjustment)
 
-    # I tried a 1.0 overlap.  It works better for light microscopy where the reported stage position is more precise
-    # For TEM the stage position can be less reliable and the 1.5 scalar produces better results
-    # For the latest version of the code that uses only the overlapping region 3 is appropriate because it allows the alignment point to be anywhere on the image without ambiguity
-    (OverlappingRegionA_original, OverlappingRegionA_extremaMask) = __get_overlapping_image(A,  # type: ignore[assignment]
-                                                                                            scaled_overlapping_source_rect_A,
-                                                                                            excess_scalar=excess_scalar,
-                                                                                            mask_extrema=mask_extrema,
-                                                                                            cval='random', dtype=dtype)
-    (OverlappingRegionB_original, OverlappingRegionB_extremaMask) = __get_overlapping_image(B,  # type: ignore[assignment]
-                                                                                            scaled_overlapping_source_rect_B,
-                                                                                            excess_scalar=excess_scalar,
-                                                                                            mask_extrema=mask_extrema,
-                                                                                            cval='random', dtype=dtype)
+    # The peak is centre to centre of the trimmed regions; move it back to the untrimmed windows' centres.
+    peak = np.asarray(result.record.peak, dtype=np.float64) + side_a.centre_shift - side_b.centre_shift
+    significance = math.atanh(min(max(result.ncc, -0.999999), 0.999999)) * math.sqrt(max(result.overlap, 0))
+    record = nornir_imageregistration.AlignmentRecord(peak + OffsetAdjustment,
+                                                      max(significance, 0.0),
+                                                      peak_ratio=result.record.peak_ratio)
+    record.masked_ncc = float(result.ncc)  # type: ignore[attr-defined]
+    return record
 
-    valid_mask_fraction_A = OverlappingRegionA_extremaMask.sum() / (  # type: ignore[union-attr]
-            OverlappingRegionA_extremaMask.shape[0] * OverlappingRegionA_extremaMask.shape[1])  # type: ignore[union-attr]
-    valid_mask_fraction_B = OverlappingRegionB_extremaMask.sum() / (  # type: ignore[union-attr]
-            OverlappingRegionB_extremaMask.shape[0] * OverlappingRegionB_extremaMask.shape[1])  # type: ignore[union-attr]
-    valid_mask_fraction_scalar = min(valid_mask_fraction_A, valid_mask_fraction_B)
 
-    OverlappingRegionA = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-        OverlappingRegionA_original,
-        min_overlap=MinOverlap,
-        original_shape=scaled_overlapping_source_rect_A.Dimensions)  # type: ignore[union-attr]
-    OverlappingRegionB = nornir_imageregistration.phasecorrelation.pad_image_for_phase_correlation(
-        OverlappingRegionB_original,
-        min_overlap=MinOverlap,
-        original_shape=scaled_overlapping_source_rect_B.Dimensions)  # type: ignore[union-attr]
-
-    if ShowImages:
-        o_a = __get_overlapping_image(A, scaled_overlapping_source_rect_A, excess_scalar=1.0, cval=0, dtype=dtype)
-        o_b = __get_overlapping_image(B, scaled_overlapping_source_rect_B, excess_scalar=1.0, cval=0, dtype=dtype)
-
-    # nornir_imageregistration.ShowGrayscale([[OverlappingRegionA, OverlappingRegionB],[o_a,o_b]])
-    # OverlappingRegionA = OverlappingRegionA.astype(np.float32)
-    # OverlappingRegionB = OverlappingRegionB.astype(np.float32)
-
-    # It is fairly common to underflow when dividing float16 images, so just warn and move on. 
-    # I spent a day debugging why a mosaic was not building correctly to find the underflow 
-    # issue, so don't remove it.  The underflow error removes one of the ties between a tile
-    # and its neighbors.
-
-    # Note error levelshould now be set in nornir_imageregistration.__init__
-    # old_float_err_settings = np.seterr(under='warn')
-
-    # If the entire region is a solid color, then return an alignment record with no offset and a weight of zero
-    if (OverlappingRegionA.min() == OverlappingRegionA.max()) or \
-            (OverlappingRegionA.max() == 0) or \
-            (OverlappingRegionB.min() == OverlappingRegionB.max()) or \
-            (OverlappingRegionB.max() == 0):
-        return nornir_imageregistration.AlignmentRecord(peak=OffsetAdjustment, weight=0)
-
-    try:
-        np.seterr(
-            under='ignore')  # It is common to encounter underflow for Float16, so temporarily turn off the warning here
-        OverlappingRegionA -= OverlappingRegionA.min()
-        OverlappingRegionA /= OverlappingRegionA.max()
-
-        OverlappingRegionB -= OverlappingRegionB.min()
-        OverlappingRegionB /= OverlappingRegionB.max()
-    finally:
-        np.seterr(under='warn')
-
-    # nornir_imageregistration.ShowGrayscale([OverlappingRegionA, OverlappingRegionB]) nornir_imageregistration.ShowGrayscale([[o_a, o_b],[OverlappingRegionA, OverlappingRegionB]])
-
-    record = nornir_imageregistration.phasecorrelation.find_offset(OverlappingRegionA,
-                                                                   OverlappingRegionB,
-                                                                   min_overlap=MinOverlap,
-                                                                   max_overlap=MaxOverlap,
-                                                                   target_shape=scaled_overlapping_source_rect_A.Dimensions,  # type: ignore[union-attr]
-                                                                   source_shape=scaled_overlapping_source_rect_B.Dimensions,  # type: ignore[union-attr]
-                                                                   fft_required=True,
-                                                                   correlation_coefficient=correlation_coefficient)  # , FixedImageShape=scaled_overlapping_source_rect_A.shape, MovingImageShape=scaled_overlapping_source_rect_B.shape)
-
-    # overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.translate(scaled_overlapping_source_rect_B, -record.peak)
-    # overlapping_rect_B_AdjustedToPeak = nornir_imageregistration.Rectangle.change_area(overlapping_rect_B_AdjustedToPeak, scaled_overlapping_source_rect_A.Size)
-    # median_diff = __AlignmentScoreRemote(A, B, scaled_overlapping_source_rect_A, overlapping_rect_B_AdjustedToPeak)
-    # nornir_imageregistration.ShowGrayscale([[OverlappingRegionA, OverlappingRegionB], [overlapping_rect_B_AdjustedToPeak, median_diff]])
-    # diff_weight = 1.0 - median_diff
-    # np.seterr(**old_float_err_settings)
-
-    # nornir_imageregistration.views.plot_aligned_images(record, o_a, o_b)
-
-    adjusted_record = nornir_imageregistration.AlignmentRecord(np.array(record.peak) + OffsetAdjustment,
-                                                               record.weight * valid_mask_fraction_scalar)
-
-    if ShowImages:
-        nornir_imageregistration.views.plot_aligned_images(record, o_a, o_b)  # type: ignore[arg-type]
-        del o_a
-        del o_b
-
-    del A
-    del B
-    del OverlappingRegionA
-    del OverlappingRegionB
-    del OverlappingRegionA_extremaMask
-    del OverlappingRegionB_extremaMask
-
-    return adjusted_record
+def _unmeasured_record(offset_adjustment) -> nornir_imageregistration.AlignmentRecord:
+    """Weight 0 at the stage offset: the regions had no valid overlap, or one was a single value."""
+    record = nornir_imageregistration.AlignmentRecord(peak=offset_adjustment, weight=0)
+    record.masked_ncc = float('nan')  # type: ignore[attr-defined]
+    return record
 
 
 def ScoreMosaicQuality(mosaicTileset):

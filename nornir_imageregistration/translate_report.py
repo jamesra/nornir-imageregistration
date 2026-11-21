@@ -8,6 +8,11 @@ how the layout was assembled and checks from the images that the final mosaic ho
 bad join is flagged for review instead of shipping silently.
 
 The join check is host-only: it reads tile images from disk and computes NCC with NumPy.
+
+An overlap "matches" when its NCC is significantly above zero. Neighbouring pixels are correlated,
+so the test uses the effective sample size of Clifford, Richardson & Hemon (1989, Biometrics 45:123)
+rather than the pixel count, and the overlaps of a section are tested together at a false discovery
+rate (Benjamini & Hochberg 1995, J. R. Stat. Soc. B 57:289). See docs/publication_notes.md.
 """
 
 from __future__ import annotations
@@ -21,20 +26,22 @@ from typing import Any
 import nornir_pools
 import numpy as np
 from numpy.typing import NDArray
+from scipy import stats
 
 import nornir_imageregistration
 from nornir_imageregistration.settings.mosaic_tile_offset import TileOffset
 
-REPORT_VERSION = 1
+REPORT_VERSION = 2
 
 # Groups smaller than this are reported but never flagged. A blank resin tile or a corner tile
 # with too little texture routinely ends up alone; flagging those would bury the joins that matter.
 MIN_FLAGGED_GROUP_TILES = 3
 
-# An overlap "matches" when its NCC is at least this fraction of the section's median overlap NCC.
-# RC3 0800 (2026-11-01): median 0.75, one matched component of 849 of 853 tiles. RC3 1637: median
-# ~0.50, and the stage-offset misjoin scores 0.03 across the join.
-MATCH_NCC_RATIO = 0.5
+# False discovery rate for calling overlaps matched: the conventional 5%, applied over all of a
+# section's overlaps (Benjamini-Hochberg). This replaced "NCC at least half the section median"
+# (2026-11-19), which left false seams in good sections: RC2 0400 and 0800 each had 6-9 unmatched
+# overlaps whose tiles shared no matched neighbour; with the significance test they have none.
+MATCH_FDR = 0.05
 
 # Overlap crops are block-averaged by this factor before scoring. NCC only has to tell
 # continuing texture from unrelated texture, and the reduction keeps every crop of a large
@@ -74,6 +81,21 @@ class JoinCheck:
 
 
 @dataclasses.dataclass
+class SeamCheck:
+    """Unmatched overlaps inside one matched group whose tiles share no matched neighbour.
+
+    Where tiles are placed right, two overlapping tiles nearly always both match some third tile,
+    even when their own overlap is too bland to score: every unmatched overlap in RC2 0400 and 0800
+    (700 of them) has such a neighbour. A row or column shifted against the rest breaks that along
+    a line: RC1_Crush 4's column misjoin left 8 overlaps without one.
+    """
+    tiles: list[int]
+    pairs: list[tuple[int, int]]
+    ncc_median: float
+    flagged: bool
+
+
+@dataclasses.dataclass
 class TranslateReport:
     """Everything translate knows about how a section's layout was assembled.
 
@@ -93,6 +115,7 @@ class TranslateReport:
     median_ncc: float | None = None
     matched_groups: list[list[int]] = dataclasses.field(default_factory=list)
     joins: list[JoinCheck] = dataclasses.field(default_factory=list)
+    seams: list[SeamCheck] = dataclasses.field(default_factory=list)
     review_reasons: list[str] = dataclasses.field(default_factory=list)
 
     @property
@@ -124,15 +147,17 @@ class TranslateReport:
         overlaps = list(nornir_imageregistration.tile_overlap.IterateTileOverlaps(
             tileset, image_to_source_space_scale=tileset.image_to_source_space_scale,
             min_overlap=min_overlap, exclude_diagonal_overlaps=exclude_diagonal_overlaps))
-        scores = _score_overlaps(overlaps, score_downsample)
+        scores, p_values = _score_overlaps(overlaps, score_downsample)
         finite = scores[np.isfinite(scores)]
         self.scored_pairs = int(finite.size)
         self.median_ncc = float(np.median(finite)) if finite.size else None
         self.joins = []
+        self.seams = []
         self.review_reasons = []
 
+        matched = _benjamini_hochberg(p_values, MATCH_FDR)
         tile_ids = sorted(int(i) for i in tileset)
-        self.matched_groups = _matched_groups(tile_ids, overlaps, scores, self.median_ncc)
+        self.matched_groups = _matched_groups(tile_ids, overlaps, matched)
         tile_to_group = {tile_id: i for i, group in enumerate(self.matched_groups) for tile_id in group}
 
         cross: dict[tuple[int, int], list[float]] = {}
@@ -148,6 +173,8 @@ class TranslateReport:
             flagged = len(join_finite) >= MIN_FLAGGED_JOIN_PAIRS and min(sizes) >= MIN_FLAGGED_GROUP_TILES
             self.joins.append(JoinCheck(groups=(group_a, group_b), group_sizes=sizes, pairs=len(join_scores),
                                         scored_pairs=len(join_finite), ncc_median=median, flagged=flagged))
+
+        self.seams = _find_seams(overlaps, scores, matched, tile_to_group)
 
         if self.secondary_blocks:
             self.review_reasons.append(
@@ -165,6 +192,17 @@ class TranslateReport:
                 f"join: {worst.group_sizes[0]} and {worst.group_sizes[1]} tiles, median NCC "
                 f"{worst.ncc_median:.3f} across {worst.scored_pairs} overlaps, against {self.median_ncc:.3f} "
                 f"for the section. A block is probably misplaced; see joins in the report.")
+
+        flagged_seams = sorted((s for s in self.seams if s.flagged), key=lambda s: -len(s.pairs))
+        if flagged_seams:
+            worst = flagged_seams[0]
+            examples = ', '.join(f"{a}-{b}" for a, b in worst.pairs[:6])
+            self.review_reasons.append(
+                f"{sum(len(s.pairs) for s in flagged_seams)} overlaps along "
+                f"{len(flagged_seams)} line(s) do not match although both of their tiles match the tiles "
+                f"around them, so a row or column of tiles is probably shifted against its neighbours "
+                f"(largest: {len(worst.pairs)} overlaps, median NCC {worst.ncc_median:.3f}, e.g. {examples}). "
+                f"See seams in the report.")
 
         if len(self.groups) > 1:
             # The largest group is the reference the others were placed against; "overlaps no
@@ -206,9 +244,8 @@ def _tile_offset_to_dict(offset: TileOffset) -> dict[str, Any]:
             'comment': offset.Comment}
 
 
-def _matched_groups(tile_ids: list[int], overlaps: list[Any], scores: NDArray[np.floating],
-                    median_ncc: float | None) -> list[list[int]]:
-    """Connected components of tiles linked by matching overlaps, largest first."""
+def _union_find_groups(tile_ids: Iterable[int], links: Iterable[tuple[int, int]]) -> list[list[int]]:
+    """Connected components of *tile_ids* under *links*, largest first."""
     parent = {tile_id: tile_id for tile_id in tile_ids}
 
     def root(tile_id: int) -> int:
@@ -217,26 +254,75 @@ def _matched_groups(tile_ids: list[int], overlaps: list[Any], scores: NDArray[np
             tile_id = parent[tile_id]
         return tile_id
 
-    if median_ncc is not None and median_ncc > 0:
-        threshold = MATCH_NCC_RATIO * median_ncc
-        for overlap, score in zip(overlaps, scores):
-            if math.isfinite(score) and score >= threshold:
-                parent[root(int(overlap.A.ID))] = root(int(overlap.B.ID))
+    for a, b in links:
+        parent[root(a)] = root(b)
 
     groups: dict[int, list[int]] = {}
-    for tile_id in tile_ids:
+    for tile_id in parent:
         groups.setdefault(root(tile_id), []).append(tile_id)
-    return sorted(groups.values(), key=lambda group: (-len(group), group[0]))
+    return sorted((sorted(g) for g in groups.values()), key=lambda group: (-len(group), group[0]))
 
 
-def _score_overlaps(overlaps: list[Any], downsample: int) -> NDArray[np.floating]:
-    """NCC of each overlap's two image regions, NaN where either side has no texture.
+def _matched_groups(tile_ids: list[int], overlaps: list[Any], matched: NDArray[np.bool_]) -> list[list[int]]:
+    """Connected components of tiles linked by matching overlaps, largest first."""
+    return _union_find_groups(tile_ids, ((int(o.A.ID), int(o.B.ID)) for o, m in zip(overlaps, matched) if m))
 
-    Each tile image is read once, on the thread pool, and cut into the reduced crops of all its
-    overlaps; the NCCs are then computed from the crops.
+
+def _find_seams(overlaps: list[Any], scores: NDArray[np.floating], matched: NDArray[np.bool_],
+                tile_to_group: dict[int, int]) -> list[SeamCheck]:
+    """Group the scored, unmatched overlaps inside a matched group whose tiles share no matched neighbour.
+
+    Overlaps that share a tile form one seam. A seam is flagged with MIN_FLAGGED_JOIN_PAIRS or more
+    overlaps, for the same reason as a join: one bland overlap is as likely to be low texture.
+    """
+    neighbours: dict[int, set[int]] = {}
+    for overlap, m in zip(overlaps, matched):
+        if m:
+            a, b = int(overlap.A.ID), int(overlap.B.ID)
+            neighbours.setdefault(a, set()).add(b)
+            neighbours.setdefault(b, set()).add(a)
+
+    seam_pairs: dict[tuple[int, int], float] = {}
+    for overlap, score, m in zip(overlaps, scores, matched):
+        a, b = int(overlap.A.ID), int(overlap.B.ID)
+        if m or not math.isfinite(score) or tile_to_group[a] != tile_to_group[b]:
+            continue
+        around_a, around_b = neighbours.get(a, set()), neighbours.get(b, set())
+        if around_a and around_b and not (around_a & around_b):
+            seam_pairs[(min(a, b), max(a, b))] = float(score)
+
+    seam_tiles = {t for pair in seam_pairs for t in pair}
+    seams = []
+    for tiles in _union_find_groups(seam_tiles, seam_pairs):
+        members = set(tiles)
+        pairs = sorted(p for p in seam_pairs if p[0] in members)
+        seams.append(SeamCheck(tiles=tiles, pairs=pairs,
+                               ncc_median=float(np.median([seam_pairs[p] for p in pairs])),
+                               flagged=len(pairs) >= MIN_FLAGGED_JOIN_PAIRS))
+    return seams
+
+
+def _benjamini_hochberg(p_values: NDArray[np.floating], fdr: float) -> NDArray[np.bool_]:
+    """True for the p-values called significant at false discovery rate *fdr*; NaN never is."""
+    called = np.zeros(p_values.shape, dtype=bool)
+    tested = np.flatnonzero(np.isfinite(p_values))
+    if tested.size == 0:
+        return called
+    order = tested[np.argsort(p_values[tested])]
+    below = p_values[order] <= fdr * np.arange(1, order.size + 1) / order.size
+    if below.any():
+        called[order[:np.flatnonzero(below)[-1] + 1]] = True
+    return called
+
+
+def _score_overlaps(overlaps: list[Any], downsample: int) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """NCC of each overlap's two image regions and its one-sided p-value against unrelated texture.
+
+    Both are NaN where either side has no texture. Each tile image is read once, on the thread pool,
+    and cut into the reduced crops of all its overlaps; the scores are then computed from the crops.
     """
     if not overlaps:
-        return np.zeros(0)
+        return np.zeros(0), np.zeros(0)
 
     regions: dict[str, list[tuple[int, int, nornir_imageregistration.Rectangle]]] = {}
     for i, overlap in enumerate(overlaps):
@@ -251,7 +337,8 @@ def _score_overlaps(overlaps: list[Any], downsample: int) -> NDArray[np.floating
         for i, side, crop in task.wait_return():
             crops[i][side] = crop
 
-    return np.array([_ncc(a, b) for a, b in crops], dtype=np.float64)
+    results = np.array([_ncc_significance(a, b) for a, b in crops], dtype=np.float64).reshape(-1, 2)
+    return results[:, 0], results[:, 1]
 
 
 def _tile_crops(path: str, regions: list[tuple[int, int, nornir_imageregistration.Rectangle]],
@@ -275,15 +362,41 @@ def _block_mean(image: NDArray[np.floating], factor: int) -> NDArray[np.floating
     return trimmed.reshape(height, factor, width, factor).mean(axis=(1, 3), dtype=np.float32)
 
 
-def _ncc(a: NDArray[np.floating] | None, b: NDArray[np.floating] | None) -> float:
+def _autocovariance_sums(x: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Sum of x[i] * x[i + k] for every lag k, from a zero-padded FFT (so lags do not wrap)."""
+    shape = (2 * x.shape[0], 2 * x.shape[1])
+    spectrum = np.fft.rfft2(x, shape)
+    return np.fft.irfft2(spectrum * np.conj(spectrum), shape)
+
+
+def _ncc_significance(a: NDArray[np.floating] | None, b: NDArray[np.floating] | None) -> tuple[float, float]:
+    """NCC of two crops and its one-sided p-value under "unrelated texture"; (NaN, NaN) when unscorable.
+
+    Clifford, Richardson & Hemon (1989): with both images autocorrelated, the variance of r under
+    independence is sum_k C_a(k) C_b(k) / N_k divided by (N var_a var_b)^2, with C the autocovariance
+    sums and N_k the pixel pairs at lag k; the effective sample size is 1 + 1 / var(r). r is tested
+    with a t statistic on Neff - 2 degrees of freedom.
+    """
     if a is None or b is None:
-        return float('nan')
+        return float('nan'), float('nan')
     height = min(a.shape[0], b.shape[0])
     width = min(a.shape[1], b.shape[1])
     if height * width < MIN_SCORED_PIXELS:
-        return float('nan')
+        return float('nan'), float('nan')
 
     centred_a = a[:height, :width].astype(np.float64) - a[:height, :width].mean()
     centred_b = b[:height, :width].astype(np.float64) - b[:height, :width].mean()
-    denominator = math.sqrt(float((centred_a * centred_a).sum()) * float((centred_b * centred_b).sum()))
-    return float((centred_a * centred_b).sum() / denominator) if denominator > 0 else float('nan')
+    sum_aa, sum_bb = float((centred_a * centred_a).sum()), float((centred_b * centred_b).sum())
+    if sum_aa <= 0 or sum_bb <= 0:
+        return float('nan'), float('nan')
+    r = float((centred_a * centred_b).sum() / math.sqrt(sum_aa * sum_bb))
+
+    lag_counts = np.rint(_autocovariance_sums(np.ones_like(centred_a)))
+    has_pairs = lag_counts > 0
+    products = _autocovariance_sums(centred_a) * _autocovariance_sums(centred_b)
+    var_r = float(np.sum(products[has_pairs] / lag_counts[has_pairs])) / (sum_aa * sum_bb)
+    if not var_r > 0:
+        return r, float('nan')
+    dof = max(1.0 / var_r - 1.0, 1.0)  # Neff - 2
+    t = r * math.sqrt(dof / max(1.0 - r * r, 1e-12))
+    return r, float(stats.t.sf(t, dof))

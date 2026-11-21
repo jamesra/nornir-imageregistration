@@ -16,20 +16,19 @@ class TestTileOffsetRemoteExcessScalar(unittest.TestCase):
         rect = nir.Rectangle.CreateFromBounds((0.0, 0.0, 32.0, 32.0))
         seen: list[float] = []
 
-        def _fake_overlap(image, overlapping_rect, excess_scalar=1.0, **kwargs):
+        def _fake_overlap(image, overlapping_rect, excess_scalar=1.0, mask_extrema=True):
             seen.append(float(excess_scalar))
             h = w = 16
             img = np.linspace(0.1, 0.9, h * w, dtype=np.float32).reshape(h, w)
             mask = np.ones((h, w), dtype=bool)
-            return img, mask
+            return arrange_mosaic._OverlapRegion(img, mask, (h, w), np.zeros(2))
 
         tile_offset = getattr(arrange_mosaic, '__tile_offset_remote')
-        with patch.object(arrange_mosaic, '__get_overlapping_image', side_effect=_fake_overlap), \
+        found = nir.masked_correlation.MaskedOffsetResult(
+            nir.AlignmentRecord(peak=(0.0, 0.0), weight=1.0), 0.5, 256)
+        with patch.object(arrange_mosaic, '_overlap_region_with_validity', side_effect=_fake_overlap), \
                 patch.object(nir, 'LoadImage', return_value=np.ones((64, 64), dtype=np.float32)), \
-                patch.object(nir.phasecorrelation, 'pad_image_for_phase_correlation',
-                             side_effect=lambda img, **k: img), \
-                patch.object(nir.phasecorrelation, 'find_offset',
-                             return_value=nir.AlignmentRecord(peak=(0.0, 0.0), weight=1.0)):
+                patch.object(nir.masked_correlation, 'masked_find_offset', return_value=found):
             tile_offset(
                 'a.png', 'b.png', rect, rect, OffsetAdjustment=(0.0, 0.0),
                 excess_scalar=1.25)

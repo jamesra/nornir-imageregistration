@@ -197,6 +197,75 @@ class TestJoinCheck(_TextureTiles):
         self.assertFalse(report.needs_review, report.review_reasons)
 
 
+class _Overlap:
+    """Just the tile IDs _find_seams reads from a TileOverlap."""
+
+    def __init__(self, a: int, b: int):
+        self.A = mock.Mock(ID=a)
+        self.B = mock.Mock(ID=b)
+
+
+class TestSeams(unittest.TestCase):
+    """Unmatched overlaps whose tiles match their surroundings but share no matched neighbour."""
+
+    # Two staggered columns, 0-2 and 3-5: each tile overlaps its column neighbours and the two
+    # tiles beside it, so every overlapping pair shares a third tile, as in a real capture.
+    PAIRS: ClassVar[list[tuple[int, int]]] = [(0, 1), (1, 2), (3, 4), (4, 5), (0, 3), (1, 3), (1, 4), (2, 4), (2, 5)]
+
+    def seams(self, unmatched: set[tuple[int, int]]):
+        overlaps = [_Overlap(a, b) for a, b in self.PAIRS]
+        matched = np.array([p not in unmatched for p in self.PAIRS])
+        scores = np.where(matched, 0.8, 0.05)
+        return translate_report._find_seams(overlaps, scores, matched, {t: 0 for t in range(6)})
+
+    def test_a_bland_overlap_between_tiles_that_share_a_neighbour_is_not_a_seam(self):
+        self.assertEqual([], self.seams({(1, 3)}))
+
+    def test_a_shifted_column_is_a_seam(self):
+        # Column 3-5 slid down a row: every cross-column overlap stops matching.
+        seams = self.seams({(0, 3), (1, 3), (1, 4), (2, 4), (2, 5)})
+        self.assertEqual(1, len(seams))
+        self.assertTrue(seams[0].flagged)
+        self.assertEqual([(0, 3), (1, 3), (1, 4), (2, 4), (2, 5)], seams[0].pairs)
+
+    def test_overlaps_between_different_matched_groups_are_left_to_the_join_check(self):
+        overlaps = [_Overlap(a, b) for a, b in self.PAIRS]
+        cross = {(0, 3), (1, 3), (1, 4), (2, 4), (2, 5)}
+        matched = np.array([p not in cross for p in self.PAIRS])
+        groups = {0: 0, 1: 0, 2: 0, 3: 1, 4: 1, 5: 1}
+        self.assertEqual([], translate_report._find_seams(overlaps, np.where(matched, 0.8, 0.05), matched, groups))
+
+
+class TestOverlapSignificance(unittest.TestCase):
+
+    def test_continuing_texture_is_significant(self):
+        texture = scipy.ndimage.gaussian_filter(np.random.default_rng(1).random((40, 200)), 2.0)
+        r, p = translate_report._ncc_significance(texture, texture + 0.01 * np.random.default_rng(2).random(texture.shape))
+        self.assertGreater(r, 0.9)
+        self.assertLess(p, 1e-6)
+
+    def test_smooth_unrelated_texture_is_not_significant_although_its_ncc_can_be_large(self):
+        # Heavy smoothing leaves few independent samples, so a sizeable r arises by chance. A test
+        # on the pixel count would call most of these matched.
+        rng = np.random.default_rng(3)
+        p_values = []
+        for _ in range(40):
+            a = scipy.ndimage.gaussian_filter(rng.random((40, 200)), 8.0)
+            b = scipy.ndimage.gaussian_filter(rng.random((40, 200)), 8.0)
+            p_values.append(translate_report._ncc_significance(a, b)[1])
+        self.assertLessEqual(sum(p < 0.05 for p in p_values), 6)
+
+    def test_flat_or_tiny_crops_are_not_scored(self):
+        self.assertTrue(np.isnan(translate_report._ncc_significance(np.ones((20, 20)), np.ones((20, 20)))[0]))
+        self.assertTrue(np.isnan(translate_report._ncc_significance(np.zeros((4, 4)), np.zeros((4, 4)))[0]))
+
+    def test_benjamini_hochberg(self):
+        p = np.array([0.001, 0.02, 0.04, 0.5, np.nan])
+        # Sorted thresholds at 5%: 0.0125, 0.025, 0.0375, 0.05 -> the first two pass.
+        np.testing.assert_array_equal([True, True, False, False, False],
+                                      translate_report._benjamini_hochberg(p, 0.05))
+
+
 class TestArrangeTilesWithTranslateFillsTheReport(_TextureTiles):
 
     def test_the_report_names_the_misjoin(self):

@@ -241,7 +241,9 @@ def _ncc_from_spectra(fixed: _SideSpectra, moving: _SideSpectra, size: tuple[int
           & (var_f > fixed.flat_tolerance * overlap)
           & (var_g > moving.flat_tolerance * overlap))
     tiny = float(np.finfo(var_f.dtype).tiny)  # 1e-300 is 0 in float32
-    ncc = xp.where(ok, cov / xp.sqrt(xp.maximum(var_f * var_g, tiny)), xp.nan)
+    # Near-empty shifts multiply two subnormal variances; the product underflows to 0 and is floored.
+    with np.errstate(under='ignore'):
+        ncc = xp.where(ok, cov / xp.sqrt(xp.maximum(var_f * var_g, tiny)), xp.nan)
     ncc = xp.clip(ncc, -1.0, 1.0)
 
     # Keep only shifts with any overlap, k in [-(h1-1), h2-1] per axis, laid out so that index
