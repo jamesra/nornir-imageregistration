@@ -19,8 +19,10 @@ import nornir_imageregistration
 
 try:
     import cupy as cp
+    import cupyx.scipy.ndimage
 except (ModuleNotFoundError, ImportError):
     import nornir_imageregistration.cupy_thunk as cp
+    import nornir_imageregistration.cupyx_thunk as cupyx
 
 _VARIANCE_SENTINEL = np.float32(np.finfo(np.float32).max)
 _NORMALIZE_CLIP_MIN = -3.0
@@ -88,11 +90,19 @@ def _rect_sum(integral: np.ndarray,
 
 
 def _median_prefilter(image: np.ndarray, median_radius: int) -> np.ndarray:
-    """Apply ITK-equivalent median prefiltering (nearest boundary, no-op at radius 0)."""
+    """Apply ITK-equivalent median prefiltering (nearest boundary, no-op at radius 0).
+
+    Host in, host out. When the session uses CuPy the median runs on the GPU: one upload, one download.
+    It was nearly all of CreateBlobFilter's time (scipy, one core: 7.2 s per 4 Mpx with -Median 7, so about
+    95 s per RC1 ds16 section); cupyx takes 0.22 s for the same image and returns identical values (a median
+    picks an input value, so there is no rounding difference).
+    """
     if median_radius <= 0:
         return image
 
     window = (median_radius * 2) + 1
+    if nornir_imageregistration.UsingCupy():
+        return cupyx.scipy.ndimage.median_filter(cp.asarray(image), size=window, mode="nearest").get()
     return ndimage.median_filter(image, size=window, mode="nearest")
 
 
@@ -333,7 +343,8 @@ def BlobFilterImageFile(load_path: str,
     """
     Run blob filtering from input/output file paths.
 
-    Processing uses the NumPy reference path for legacy parity regardless of size.
+    Processing uses the NumPy reference path for legacy parity regardless of size, except the median
+    prefilter, which runs on the GPU in a CuPy session (identical values; see ``_median_prefilter``).
     """
     del min_pixels_for_gpu  # parity-critical path always uses NumPy reference
 

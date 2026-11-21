@@ -65,6 +65,23 @@ class TestBlobFilter(unittest.TestCase):
         self.assertGreater(diagnostics.masked_pixel_count, 0)
 
     @unittest.skipIf(not nornir_imageregistration.HasCupy(), "CuPy not available")
+    def test_gpu_median_prefilter_is_identical(self):
+        """In a CuPy session the median prefilter runs on the GPU and returns exactly the scipy values."""
+        from scipy import ndimage
+
+        rng = np.random.default_rng(3)
+        image = np.floor(rng.random((300, 280)) * 256.0).astype(np.float32)  # 8-bit values, as loaded
+        expected = ndimage.median_filter(image, size=15, mode="nearest")
+        previous = nornir_imageregistration.GetActiveComputationLib()
+        nornir_imageregistration.SetActiveComputationLib(nornir_imageregistration.ComputationLib.cupy)
+        try:
+            out = _blob_filter_module()._median_prefilter(image, 7)
+        finally:
+            nornir_imageregistration.SetActiveComputationLib(previous)
+        self.assertIsInstance(out, np.ndarray)
+        np.testing.assert_array_equal(out, expected)
+
+    @unittest.skipIf(not nornir_imageregistration.HasCupy(), "CuPy not available")
     def test_blob_filter_cupy_matches_numpy(self):
         import cupy as cp
 
