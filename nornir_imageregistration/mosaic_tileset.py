@@ -30,12 +30,18 @@ _GPU_OOM_RETRY_WAITS_S: tuple[float, ...] = (5.0, 30.0, 120.0)
 
 
 def _is_gpu_out_of_memory(exc: BaseException) -> bool:
-    """True for a CUDA allocation failure: CuPy's OutOfMemoryError, or a cuFFT/cuBLAS/CUDA allocation error."""
+    """True for a CUDA allocation failure: CuPy's OutOfMemoryError, a cuFFT/cuBLAS/CUDA allocation error, or Thrust.
+
+    Thrust (CuPy's sort, hence ``cupy.median``) allocates outside the CuPy pool and raises a plain
+    ``MemoryError: std::bad_alloc`` (RC1 StosBrute on srv, 2026-11-21, from ImageStats.Create).
+    """
     out_of_memory_error = getattr(getattr(getattr(nornir_imageregistration.cp, 'cuda', None), 'memory', None),
                                   'OutOfMemoryError', None)
     if isinstance(out_of_memory_error, type) and isinstance(exc, out_of_memory_error):
         return True
     text = str(exc)
+    if isinstance(exc, MemoryError) and 'bad_alloc' in text:
+        return True
     return any(marker in text for marker in ('out of memory', 'CUFFT_ALLOC_FAILED', 'cudaErrorMemoryAllocation',
                                              'CUBLAS_STATUS_ALLOC_FAILED'))
 
