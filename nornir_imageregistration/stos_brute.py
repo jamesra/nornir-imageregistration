@@ -30,6 +30,7 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 from typing import Sequence, AbstractSet, Optional
+import contextvars
 import logging
 import skimage
 import skimage.registration
@@ -1803,8 +1804,9 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         # Clean RC1_Crush pairs: the winner scores 6-25x the best peak at another angle (2026-11-21). A margin
         # this small is what torn or mismatched sections look like (RC2 1034->1032); check the pair in Pyre.
         logging.getLogger(__name__).warning(
-            'stos-brute search: weak pose, the winning masked significance is only %.2fx the best peak at '
-            'another angle (under %.1fx); check this pair by hand', margin, _MASKED_WEAK_PEAK_RATIO)
+            '%s: weak pose, the winning masked significance is only %.2fx the best peak at '
+            'another angle (under %.1fx); check this pair by hand', _pair_log_prefix(), margin,
+            _MASKED_WEAK_PEAK_RATIO)
 
     if scalar != 1.0:
         AdjustedPeak = (best_refined_match.peak[0] * (1 / scalar), best_refined_match.peak[1] * (1 / scalar))  # type: ignore[union-attr]
@@ -2096,6 +2098,17 @@ def _find_best_angle_masked(scorer: _MaskedPoseScorer,
     return best
 
 
+PAIR_LOG_LABEL: contextvars.ContextVar[str] = contextvars.ContextVar('stos_brute_pair_log_label', default='')
+"""Set by a caller registering a named pair (e.g. "5-4", moving-fixed) so the search's log lines name it; parallel
+workers otherwise interleave unattributable warnings (RC1, 2026-11-21)."""
+
+
+def _pair_log_prefix() -> str:
+    """'stos-brute search' plus the pair label when the caller set one."""
+    label = PAIR_LOG_LABEL.get()
+    return f'stos-brute search [{label}]' if label else 'stos-brute search'
+
+
 _COARSE_GRID_DIM_VAR = 'NORNIR_STOS_BRUTE_COARSE_GRID_DIM'
 _COARSE_GRID_TOPK_VAR = 'NORNIR_STOS_BRUTE_COARSE_GRID_TOPK'
 _COARSE_GRID_DEFAULT_TOPK = 3
@@ -2216,24 +2229,24 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
     rival = coarse_peaks.get('clear_best') if coarse_peaks is not None else None
     flat = runner_up > 0 and scored[0][0] <= runner_up * _COARSE_GRID_MIN_PEAK_RATIO
     if flat and rival is not None and scored[0][0] * _COARSE_GRID_MIN_PEAK_RATIO < rival:
-        logger.info('stos-brute search: coarse grid at %dpx found no clear peak (best %.3f) and the other '
+        logger.info('%s: coarse grid at %dpx found no clear peak (best %.3f) and the other '
                     'orientation peaked at %.3f; refining the top %d without a full-resolution fallback',
-                    largest_dimension, scored[0][0], rival, top_k)
+                    _pair_log_prefix(), largest_dimension, scored[0][0], rival, top_k)
         flat = False
     elif not flat and coarse_peaks is not None:
         coarse_peaks['clear_best'] = max(scored[0][0], coarse_peaks.get('clear_best', 0.0))
     if flat:
         logger.info(
-            'stos-brute search: coarse grid at %dpx found no clear peak (best %.3f vs runner-up %.3f, '
+            '%s: coarse grid at %dpx found no clear peak (best %.3f vs runner-up %.3f, '
             'ratio %.3f <= %.2f); falling back to the full-resolution search over all %d scales',
-            largest_dimension, scored[0][0], runner_up, scored[0][0] / runner_up,
+            _pair_log_prefix(), largest_dimension, scored[0][0], runner_up, scored[0][0] / runner_up,
             _COARSE_GRID_MIN_PEAK_RATIO, len(candidates))
         return _find_best_angle_exhaustive(pair, angle_range, candidates, execution)
     if coarse_peaks is not None and runner_up > 0:
         coarse_peaks['last_margin'] = scored[0][0] / runner_up  # read by the caller for the weak-pose warning
-    logger.info('stos-brute search: coarse grid at %dpx (best %.3f at angle %.2f, scale %.4f; runner-up peak '
+    logger.info('%s: coarse grid at %dpx (best %.3f at angle %.2f, scale %.4f; runner-up peak '
                 '%.3f); refining the top %d at full resolution',
-                largest_dimension, scored[0][0], scored[0][2], scored[0][1], runner_up, top_k)
+                _pair_log_prefix(), largest_dimension, scored[0][0], scored[0][2], scored[0][1], runner_up, top_k)
 
     refine = scored[:max(1, top_k)]
     if pair.scorer is not None:

@@ -565,6 +565,18 @@ class TestDecimationScale(unittest.TestCase):
         self.assertGreaterEqual(stos_brute._decimation_scale((100, 100), (100, 100), 512), 1.0)
 
 
+class TestPairLogLabel(unittest.TestCase):
+    """RC1 2026-11-21: parallel workers' weak-pose and fallback lines must name their pair."""
+
+    def test_the_prefix_names_the_pair_while_the_label_is_set(self):
+        token = stos_brute.PAIR_LOG_LABEL.set('5-4_ctrl-TEM_Blob_map-TEM_Blob.stos')
+        try:
+            self.assertEqual('stos-brute search [5-4_ctrl-TEM_Blob_map-TEM_Blob.stos]', stos_brute._pair_log_prefix())
+        finally:
+            stos_brute.PAIR_LOG_LABEL.reset(token)
+        self.assertEqual('stos-brute search', stos_brute._pair_log_prefix())
+
+
 class TestNeighbouringAngles(unittest.TestCase):
 
     def test_an_interior_angle_gets_both_neighbours(self):
