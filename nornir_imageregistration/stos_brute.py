@@ -1123,6 +1123,7 @@ class _MaskedPoseScorer:
                  source_image: NDArray, source_mask: NDArray[np.bool_], min_overlap: float) -> None:
         xp = cp.get_array_module(target_image)
         source_image = _coerce_to_source_module(source_image, xp)
+        self._inputs = (target_image, target_mask, source_image, source_mask)  # for decimated()
         sigmas = nornir_imageregistration.masked_correlation.default_bandpass_sigmas(target_image.shape)
         self._target, self._target_valid = nornir_imageregistration.masked_correlation.masked_bandpass(
             target_image, _coerce_to_source_module(target_mask, xp), *sigmas)
@@ -1144,6 +1145,13 @@ class _MaskedPoseScorer:
                 self._target, self._target_valid, (self._sweep_bound, self._sweep_bound),
                 min_overlap_fraction=self._min_overlap)
         return self._sweep
+
+    def decimated(self, factor: float) -> '_MaskedPoseScorer':
+        """The same scorer on images and masks resampled by *factor* (< 1), band-passed at that size."""
+        target_image, target_mask, source_image, source_mask = self._inputs
+        return _MaskedPoseScorer(_scale_registration_image(target_image, factor), _scale_mask(target_mask, factor),
+                                 _scale_registration_image(source_image, factor), _scale_mask(source_mask, factor),
+                                 self._min_overlap)
 
     def score(self, angle: float, source_scale: float = 1.0) -> nornir_imageregistration.AlignmentRecord:
         """Best translation at (*angle*, *source_scale*); weight is its significance, 0 if no shift qualifies."""
@@ -1487,6 +1495,7 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
         source_mask = _scale_mask(source_mask, scalar)
 
     scorers: dict[bool, _MaskedPoseScorer] = {}
+    coarse_peaks: dict[str, float] = {}  # the upright search's clear coarse peak, read by the flipped search
 
     def _scorer(candidate_source: NDArray[np.floating], flipped_ud: bool) -> _MaskedPoseScorer:
         """The masked pose scorer for the upright or flipped source, built once each."""
@@ -1619,7 +1628,11 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             scale_hint=resolved_scale_hint,
             execution=execution,
             force_search=force_scale_search,
+            coarse_peaks=coarse_peaks,
         )
+    coarse_margins: dict[bool, float] = {}
+    if 'last_margin' in coarse_peaks:
+        coarse_margins[False] = coarse_peaks.pop('last_margin')
 
     final_significance: dict[bool, float] = {}
 
@@ -1772,7 +1785,10 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
                 scale_hint=resolved_scale_hint,
                 execution=execution,
                 force_search=force_scale_search,
+                coarse_peaks=coarse_peaks,
             )
+            if 'last_margin' in coarse_peaks:
+                coarse_margins[True] = coarse_peaks.pop('last_margin')
             _show_flipped_refine(progress_span)
             flipped_final = _finalize_bruteforce_candidate(
                 flipped_source, flipped_seed, flipped_scale, True)
@@ -1782,6 +1798,13 @@ def SliceToSliceRigidRegistrationWithPreprocessedImages(
             best_refined_match = flipped_final
 
     is_flipped = bool(best_refined_match.flippedud)
+    margin = coarse_margins.get(is_flipped)
+    if margin is not None and margin < _MASKED_WEAK_PEAK_RATIO:
+        # Clean RC1_Crush pairs: the winner scores 6-25x the best peak at another angle (2026-11-21). A margin
+        # this small is what torn or mismatched sections look like (RC2 1034->1032); check the pair in Pyre.
+        logging.getLogger(__name__).warning(
+            'stos-brute search: weak pose, the winning masked significance is only %.2fx the best peak at '
+            'another angle (under %.1fx); check this pair by hand', margin, _MASKED_WEAK_PEAK_RATIO)
 
     if scalar != 1.0:
         AdjustedPeak = (best_refined_match.peak[0] * (1 / scalar), best_refined_match.peak[1] * (1 / scalar))  # type: ignore[union-attr]
@@ -2079,6 +2102,13 @@ _COARSE_GRID_DEFAULT_TOPK = 3
 # Below this margin over the runner-up, the coarse ranking is inside the objective's own
 # 11-17% run-to-run spread (#95) and is not a ranking at all.
 _COARSE_GRID_MIN_PEAK_RATIO = 1.2
+# Largest dimension of the decimated images the masked scorer's coarse grid is evaluated on.
+_MASKED_COARSE_GRID_DIM = 512
+# Masked coarse entries within this fraction of the best are rescored at full resolution (at most _MAX of them).
+_MASKED_COARSE_PLATEAU = 0.9
+_MASKED_COARSE_PLATEAU_MAX = 12
+# Below this margin of the coarse winner over the best peak at another angle, the pose is logged as weak.
+_MASKED_WEAK_PEAK_RATIO = 2.0
 
 
 def _coarse_grid_settings() -> tuple[int, int] | None:
@@ -2126,6 +2156,7 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
                                       execution: _SearchExecution,
                                       largest_dimension: int,
                                       top_k: int,
+                                      coarse_peaks: dict[str, float] | None = None,
                                       ) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
     """Score the whole angle x scale grid on decimated images, refine the best few at full size.
 
@@ -2156,8 +2187,10 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
     coarse_source = _scale_registration_image(pair.source_image, scale)
     coarse_target_stats = nornir_imageregistration.ImageStats.CalcStats(coarse_target)
     coarse_source_stats = nornir_imageregistration.ImageStats.CalcStats(coarse_source)
+    # The masked scorer is decimated with its masks, so the coarse grid scores the same objective as the full one.
+    coarse_scorer = pair.scorer.decimated(scale) if pair.scorer is not None else None
     coarse_pair = _RegistrationPair(coarse_source, coarse_target, coarse_source_stats,
-                                    coarse_target_stats, pair.min_overlap)
+                                    coarse_target_stats, pair.min_overlap, scorer=coarse_scorer)
 
     scored: list[tuple[float, float, float]] = []  # (weight, scale, angle)
     for candidate in candidates:
@@ -2166,22 +2199,48 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
         scored.append((float(match.weight), float(candidate), float(match.angle)))
 
     scored.sort(key=lambda entry: -entry[0])
+    angle_list = [float(a) for a in angle_range]
+    logger = logging.getLogger(__name__)
 
     # A peak that does not clear the objective's own run-to-run spread is not a ranking, and
     # refining the top few of a flat surface would just pick noise cheaply. Fall back.
-    if len(scored) > 1 and scored[0][0] <= scored[1][0] * _COARSE_GRID_MIN_PEAK_RATIO:
-        logging.getLogger(__name__).info(
-            'coarse grid at %dpx found no clear peak (best %.3f vs runner-up %.3f, '
-            'ratio %.3f <= %.2f); falling back to the full-resolution search over all '
-            '%d scales',
-            largest_dimension, scored[0][0], scored[1][0],
-            scored[0][0] / scored[1][0], _COARSE_GRID_MIN_PEAK_RATIO, len(candidates))
+    # With the masked scorer every scale near the true one peaks at the same angle with nearly the same
+    # significance, so the runner-up is the best entry at a *different* angle (another peak).
+    if pair.scorer is not None:
+        runner_up = _best_weight_at_other_angle(scored, angle_list)
+    else:
+        runner_up = scored[1][0] if len(scored) > 1 else 0.0
+    # The flipped search of a pair runs after the upright one. An orientation whose coarse best is clearly below
+    # the other orientation's clear peak cannot win the final upright-vs-flipped comparison, so a flat surface
+    # there needs no full-resolution fallback; its top few are still refined and compared.
+    rival = coarse_peaks.get('clear_best') if coarse_peaks is not None else None
+    flat = runner_up > 0 and scored[0][0] <= runner_up * _COARSE_GRID_MIN_PEAK_RATIO
+    if flat and rival is not None and scored[0][0] * _COARSE_GRID_MIN_PEAK_RATIO < rival:
+        logger.info('stos-brute search: coarse grid at %dpx found no clear peak (best %.3f) and the other '
+                    'orientation peaked at %.3f; refining the top %d without a full-resolution fallback',
+                    largest_dimension, scored[0][0], rival, top_k)
+        flat = False
+    elif not flat and coarse_peaks is not None:
+        coarse_peaks['clear_best'] = max(scored[0][0], coarse_peaks.get('clear_best', 0.0))
+    if flat:
+        logger.info(
+            'stos-brute search: coarse grid at %dpx found no clear peak (best %.3f vs runner-up %.3f, '
+            'ratio %.3f <= %.2f); falling back to the full-resolution search over all %d scales',
+            largest_dimension, scored[0][0], runner_up, scored[0][0] / runner_up,
+            _COARSE_GRID_MIN_PEAK_RATIO, len(candidates))
         return _find_best_angle_exhaustive(pair, angle_range, candidates, execution)
+    if coarse_peaks is not None and runner_up > 0:
+        coarse_peaks['last_margin'] = scored[0][0] / runner_up  # read by the caller for the weak-pose warning
+    logger.info('stos-brute search: coarse grid at %dpx (best %.3f at angle %.2f, scale %.4f; runner-up peak '
+                '%.3f); refining the top %d at full resolution',
+                largest_dimension, scored[0][0], scored[0][2], scored[0][1], runner_up, top_k)
 
-    angle_list = [float(a) for a in angle_range]
+    refine = scored[:max(1, top_k)]
+    if pair.scorer is not None:
+        refine = _masked_coarse_plateau(scored, top_k)
     best_match: nornir_imageregistration.AlignmentRecord | None = None
     best_scale = 1.0
-    for _, candidate, coarse_angle in scored[:max(1, top_k)]:
+    for _, candidate, coarse_angle in refine:
         check_cancelled(execution.cancel_event)
         refine_angles = _neighbouring_angles(angle_list, coarse_angle)
         match = _find_best_angle_at_scale(pair, refine_angles, candidate, execution)
@@ -2193,20 +2252,69 @@ def _find_best_angle_with_coarse_grid(pair: _RegistrationPair,
     return best_match, best_scale
 
 
+def _masked_coarse_plateau(scored: Sequence[tuple[float, float, float]],
+                           top_k: int) -> Sequence[tuple[float, float, float]]:
+    """The coarse entries (sorted best first) to rescore at full resolution for the masked scorer.
+
+    Every entry within ``_MASKED_COARSE_PLATEAU`` of the best, at least *top_k* and at most
+    ``_MASKED_COARSE_PLATEAU_MAX``. At 512 px the significance is flat across neighbouring scales (RC1_Crush 3-2,
+    2026-11-21: 0.958-0.988 within 5%), so the order inside that plateau is noise and a fixed top 3 missed the
+    full grid's scale. A full-resolution rescore costs ~3 sweep angles x ~140 ms, small beside the coarse grid.
+    """
+    if not scored:
+        return scored
+    floor = scored[0][0] * _MASKED_COARSE_PLATEAU
+    plateau = [entry for entry in scored if entry[0] >= floor]
+    count = min(max(len(plateau), max(1, top_k)), _MASKED_COARSE_PLATEAU_MAX)
+    return scored[:count]
+
+
+def _best_weight_at_other_angle(scored: Sequence[tuple[float, float, float]],
+                                angle_list: Sequence[float]) -> float:
+    """Highest weight in *scored* (sorted best first) whose angle is more than two sweep steps from the winner's.
+
+    0.0 when every scale's best angle sits on the winner's peak. Angles are degrees, compared on the circle.
+    """
+    if len(scored) < 2:
+        return 0.0
+    steps = np.diff(np.sort(np.asarray(angle_list, dtype=np.float64)))
+    step = float(np.median(steps)) if steps.size else 1.0
+    winner_angle = scored[0][2]
+    for weight, _scale, angle in scored[1:]:
+        if abs(((angle - winner_angle + 180.0) % 360.0) - 180.0) > 2.0 * step + 1e-6:
+            return float(weight)
+    return 0.0
+
+
 def _neighbouring_angles(angle_list: Sequence[float], angle: float) -> list[float]:
     """*angle* plus its immediate neighbours in the sweep.
 
     Decimation can move the winner by a step, so the full-resolution refine covers the
     coarse pick's neighbours rather than trusting it exactly.
+
+    Neighbours are found on the circle, within 1.5 sweep steps: a sweep may mix ranges (seeds such as
+    -30.77 beside a 0-358 grid), and -30.77's neighbours are 328 and 330, not the list's next entry.
+    RC1_Crush 2-1 (2026-11-21) refined -30.77 against 0 and lost 5% significance to the full grid.
     """
     if not angle_list:
         return [float(angle)]
-    index = min(range(len(angle_list)), key=lambda i: abs(angle_list[i] - angle))
-    window = {float(angle_list[index])}
-    if index > 0:
-        window.add(float(angle_list[index - 1]))
-    if index + 1 < len(angle_list):
-        window.add(float(angle_list[index + 1]))
+
+    def delta(a: float, b: float) -> float:
+        return ((a - b + 180.0) % 360.0) - 180.0
+
+    centre = float(min(angle_list, key=lambda a: abs(delta(a, angle))))
+    others = [float(a) for a in angle_list if abs(delta(a, centre)) > 1e-9]
+    window = {centre}
+    if not others:
+        return sorted(window)
+    steps = np.diff(np.unique(np.asarray(angle_list, dtype=np.float64)))
+    reach = 1.5 * float(np.median(steps)) if steps.size else 0.0
+    below = [a for a in others if -reach <= delta(a, centre) < 0]
+    above = [a for a in others if 0 < delta(a, centre) <= reach]
+    if below:
+        window.add(max(below, key=lambda a: delta(a, centre)))
+    if above:
+        window.add(min(above, key=lambda a: delta(a, centre)))
     return sorted(window)
 
 
@@ -2239,18 +2347,29 @@ def _find_best_angle_with_scale_search(pair: _RegistrationPair,
                                        scale_hint: float | None,
                                        execution: _SearchExecution,
                                        *,
-                                       force_search: bool = False) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
-    """Best (angle record, scale) over the scale candidates; coarse grid only when opted in."""
+                                       force_search: bool = False,
+                                       coarse_peaks: dict[str, float] | None = None,
+                                       ) -> tuple[nornir_imageregistration.AlignmentRecord, float]:
+    """Best (angle record, scale) over the scale candidates.
+
+    The masked scorer always uses the coarse grid; phase correlation only when opted in. *coarse_peaks* is shared
+    by a pair's upright and flipped searches (see ``_find_best_angle_with_coarse_grid``).
+    """
     candidates = _scale_search_candidates(metadata_applied, scale_hint, force_search=force_search)
 
     # The angle x scale cross product is ~1980 full-resolution scores on the ds32 pair, about
     # 186 min serial (#234). Evaluating the same grid on decimated images and refining only
     # the best few is roughly an order of magnitude cheaper; opt-in because it changes output.
     coarse = _coarse_grid_settings()
+    if pair.scorer is not None:
+        # Masked scoring always uses the coarse grid (the environment setting applies only to phase correlation):
+        # each masked score costs ~50x a phase score, and the exhaustive grid took ~640 s per RC1 ds64 pair on srv
+        # (2026-11-21). Validated against full-grid poses on RC1_Crush pairs before it became the default.
+        coarse = (_MASKED_COARSE_GRID_DIM, _COARSE_GRID_DEFAULT_TOPK)
     if coarse is not None and len(candidates) > 1 and len(angle_range) > 1:
         largest_dimension, top_k = coarse
         return _find_best_angle_with_coarse_grid(
-            pair, angle_range, candidates, execution, largest_dimension, top_k)
+            pair, angle_range, candidates, execution, largest_dimension, top_k, coarse_peaks=coarse_peaks)
 
     return _find_best_angle_exhaustive(pair, angle_range, candidates, execution)
 

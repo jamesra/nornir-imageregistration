@@ -590,6 +590,16 @@ class TestNeighbouringAngles(unittest.TestCase):
         self.assertEqual([0.0, 10.0, 20.0],
                          stos_brute._neighbouring_angles([0.0, 10.0, 20.0, 30.0], 10.0000001))
 
+    def test_neighbours_wrap_around_the_circle(self):
+        """A full-circle sweep: -178 and 180 are neighbours."""
+        angles = [float(a) for a in range(-178, 182, 2)]
+        self.assertEqual([-178.0, -176.0, 180.0], stos_brute._neighbouring_angles(angles, -178.0))
+
+    def test_a_seed_outside_the_grid_range_gets_its_neighbours_on_the_circle(self):
+        """RC1_Crush 2-1: a -30.77 seed beside a 0-358 grid; its neighbours are 328 and 330, not 0."""
+        angles = [-30.77] + [float(a) for a in range(0, 360, 2)]
+        self.assertEqual([-30.77, 328.0, 330.0], stos_brute._neighbouring_angles(angles, -30.77))
+
     def test_it_never_returns_duplicates(self):
         for angles in ([0.0], [0.0, 1.0], [0.0, 1.0, 2.0, 3.0]):
             for angle in angles:
