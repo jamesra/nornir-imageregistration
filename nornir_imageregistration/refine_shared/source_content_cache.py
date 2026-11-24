@@ -14,6 +14,8 @@ from nornir_imageregistration.refine_shared.cell_validity import (
 
 from nornir_imageregistration import cp
 
+# Bytes of float64 crops stacked at once by crop_source_cell_stds_batched (peak is about 3x this).
+_STD_CHUNK_BYTES = 256 * 1024 * 1024
 
 class SourceContentCache:
     """Per-refine cache of source ROI std keyed by grid ID.
@@ -117,18 +119,27 @@ def crop_source_cell_stds_batched(
     half = xp.asarray((h / 2.0, w / 2.0), dtype=points.dtype)
     origins_host = nornir_imageregistration.EnsureNumpyArray(xp.floor(points - half))
 
-    crops: list[NDArray] = []
-    for i in range(num):
-        bot = int(origins_host[i, 0])
-        left = int(origins_host[i, 1])
-        roi = nornir_imageregistration.CropImage(
-            source_image, left, bot, w, h, cval=0)
-        crops.append(xp.asarray(roi, dtype=xp.float64))
+    # Bounded chunks: a whole-grid stack is num x h x w float64 (about 4x that at peak with the crop list,
+    # isfinite and where copies). RC3-v2 267-268 Grid16 (2026-11-24): after "no usable alignments" doubled the
+    # cell to 1024 px, ~1280 cells asked CuPy for one 10.7 GB block and the pair failed on OOM.
+    chunk = max(1, _STD_CHUNK_BYTES // max(1, h * w * 8))
+    results: list[NDArray[np.floating]] = []
+    for start in range(0, num, chunk):
+        crops: list[NDArray] = []
+        for i in range(start, min(num, start + chunk)):
+            bot = int(origins_host[i, 0])
+            left = int(origins_host[i, 1])
+            roi = nornir_imageregistration.CropImage(
+                source_image, left, bot, w, h, cval=0)
+            crops.append(xp.asarray(roi, dtype=xp.float64))
 
-    stack = xp.stack(crops, axis=0)
-    finite = xp.isfinite(stack)
-    counts = xp.count_nonzero(finite, axis=(1, 2))
-    filled = xp.where(finite, stack, xp.asarray(0.0, dtype=stack.dtype))
-    stds = xp.std(filled, axis=(1, 2))
-    stds = xp.where(counts >= 2, stds, xp.asarray(0.0, dtype=stds.dtype))
-    return np.asarray(nornir_imageregistration.EnsureNumpyArray(stds), dtype=np.float64).reshape(-1)
+        stack = xp.stack(crops, axis=0)
+        del crops
+        finite = xp.isfinite(stack)
+        counts = xp.count_nonzero(finite, axis=(1, 2))
+        filled = xp.where(finite, stack, xp.asarray(0.0, dtype=stack.dtype))
+        del stack, finite
+        stds = xp.std(filled, axis=(1, 2))
+        stds = xp.where(counts >= 2, stds, xp.asarray(0.0, dtype=stds.dtype))
+        results.append(np.asarray(nornir_imageregistration.EnsureNumpyArray(stds), dtype=np.float64).reshape(-1))
+    return np.concatenate(results)
