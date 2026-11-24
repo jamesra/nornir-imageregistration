@@ -123,6 +123,10 @@ _CPU_FFT_CELL_CHUNK: int = 1024
 _CPU_FFT_BUDGET_BYTES: int = _CPU_FFT_CELL_CHUNK * _FFT_PEAK_BYTES_PER_CELL_128
 _CPU_ROI_SAMPLE_BUDGET: int = 16_000_000
 _MAX_FFT_CELL_CHUNK: int = 16_384
+# Device bytes the batched translation measurement holds per cell pixel outside its FFT (see
+# batched_translation_cell_chunk_size). Measured pool growth per call on RC3-v2 245-246 ds64 (CuPy, 2026-11-24):
+# 19-20 B/px at 512 px (614-696 cells), 42 B/px at 256 px (318 cells); small calls carry more fixed overhead.
+_TRANSLATION_STACK_BYTES_PER_PIXEL: int = 48
 _MAX_ROI_SAMPLE_BUDGET: int = 128_000_000
 
 
@@ -141,6 +145,27 @@ def cuda_memory_info() -> tuple[int | None, int | None]:
         return int(free_bytes), int(total_bytes)
     except Exception:
         return None, None
+
+
+def batched_translation_cell_chunk_size(cell_shape: np.ndarray | tuple[int, ...] | list[int]) -> int | None:
+    """Max cells one batched translation measurement should stack, or None when it is not bounded (NumPy).
+
+    The batched cell measurement builds every cell's fixed, moving, validity and exact-transform stacks
+    before its (separately chunked) FFT, so its device footprint is cells x cell pixels x
+    ``_TRANSLATION_STACK_BYTES_PER_PIXEL``. The budget is the same fraction of available device memory as the
+    FFT chunks, counting the CuPy pool's cached free blocks as available (the pool reuses them).
+    """
+    shape = np.asarray(cell_shape, dtype=np.int64).reshape(-1)
+    cell_h = int(shape[0]) if shape.size > 0 else 128
+    cell_w = int(shape[1]) if shape.size > 1 else cell_h
+    free_bytes, _ = cuda_memory_info()
+    if free_bytes is None:
+        return None
+    pool_factory = getattr(cp, 'get_default_memory_pool', None)  # absent on the CuPy thunk
+    if pool_factory is not None:
+        free_bytes += int(pool_factory().free_bytes())
+    budget_bytes = max(0, int(free_bytes * _REFINE_BATCH_VRAM_FRACTION) - _REFINE_BATCH_HEADROOM_BYTES)
+    return max(1, budget_bytes // max(1, cell_h * cell_w * _TRANSLATION_STACK_BYTES_PER_PIXEL))
 
 
 def _fft_peak_bytes_per_cell(cell_h: int, cell_w: int) -> int:

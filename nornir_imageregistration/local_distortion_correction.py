@@ -97,7 +97,10 @@ from nornir_imageregistration.refine_shared.adaptive_cell_size import (
     pass_found_registrations,
 )
 from nornir_imageregistration.refine_shared.phase_timer import RefinePhaseTimer as _RefinePhaseTimer
-from nornir_imageregistration.refine_shared.gpu_batch_budget import batched_fft_cell_chunk_size
+from nornir_imageregistration.refine_shared.gpu_batch_budget import (
+    batched_fft_cell_chunk_size,
+    batched_translation_cell_chunk_size,
+)
 from nornir_imageregistration.refine_shared import image_prefetch, legacy_cell_match
 from nornir_imageregistration.refine_shared.peak_ratio_gates import (
     finite_peak_ratio,
@@ -2074,6 +2077,49 @@ def _attempt_align_points_translation_batched(
     # unusable. Reporting None here re-ran the whole grid through the serial peak
     # finder, which can disagree, so the control points depended on whether the
     # batched result happened to come back empty.
+    return records
+
+
+def _attempt_align_points_translation_batched_bounded(
+        keys: list[tuple[int, int]],
+        source_points: np.ndarray,
+        target_points: np.ndarray,
+        rigid_transforms: Sequence[nornir_imageregistration.ITransform],
+        settings: nornir_imageregistration.settings.GridRefinement,
+        exact_transform: nornir_imageregistration.ITransform | None = None,
+        roi_sink: MeasuredRoiSink | None = None,
+) -> list[nornir_imageregistration.EnhancedAlignmentRecord] | None:
+    """``_attempt_align_points_translation_batched``, split into groups of cells that fit in device memory.
+
+    A grid that fits (every production pass at its normal cell size) is measured in one call, unchanged. RC3-v2
+    324-325 Grid16 (2026-11-24): "no usable alignments" doubled the cell to 512 px, the pass's stacks reached
+    21.5 GB and the pair failed on a CuPy OOM. Groups are measured without the ROI sink (the ZNCC gate
+    re-extracts its few lock candidates). Returns None, so the caller measures serially, if any group could not
+    run batched, as the single call would.
+    """
+    n_points = len(keys)
+    chunk = batched_translation_cell_chunk_size(settings.cell_size)
+    if chunk is None or chunk >= n_points:
+        return _attempt_align_points_translation_batched(
+            keys=keys, source_points=source_points, target_points=target_points,
+            rigid_transforms=rigid_transforms, settings=settings, exact_transform=exact_transform,
+            roi_sink=roi_sink)
+
+    if roi_sink is not None:
+        roi_sink.clear()
+    cell_size = np.asarray(settings.cell_size).reshape(-1)
+    prettyoutput.Log(f'Batched cells: measuring {n_points} cells of {int(cell_size[0])}x{int(cell_size[-1])} px '
+                     f'in groups of {chunk} to fit device memory')
+    records: list[nornir_imageregistration.EnhancedAlignmentRecord] = []
+    for start in range(0, n_points, chunk):
+        stop = min(n_points, start + chunk)
+        part = _attempt_align_points_translation_batched(
+            keys=keys[start:stop], source_points=source_points[start:stop],
+            target_points=target_points[start:stop], rigid_transforms=rigid_transforms[start:stop],
+            settings=settings, exact_transform=exact_transform, roi_sink=None)
+        if part is None:
+            return None
+        records.extend(part)
     return records
 
 
@@ -5598,7 +5644,7 @@ def _RefinePointsForTwoImages(transform: nornir_imageregistration.transforms.ITr
             and _angles_are_translation_only(settings.angles_to_search)
             and not estimate_angle
             and nPoints > 0):
-        batched = _attempt_align_points_translation_batched(
+        batched = _attempt_align_points_translation_batched_bounded(
             keys=keys,
             source_points=sourcePoints,
             target_points=targetPoints,
